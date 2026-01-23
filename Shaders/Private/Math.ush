@@ -1,0 +1,129 @@
+/**
+ * Math.ush
+ * Mathematical utility functions for shader computations
+ * Includes hash functions, gradient generators, and interpolation helpers
+ */
+
+#pragma once
+
+// Mathematical constants
+#define PI 3.14159265
+
+/**
+ * Pseudo-random hash function (1D input)
+ * @param Seed Input value for hashing
+ * @return Pseudo-random value in range [0, 1]
+ */
+float Hash(float Seed)
+{
+	return frac(sin(Seed * 12.9898) * 43758.5453);
+}
+
+/**
+ * Pseudo-random hash function (2D input)
+ * @param Seed 2D input value for hashing
+ * @return Pseudo-random value in range [0, 1]
+ */
+float Hash(float2 Seed)
+{
+	return frac(sin(dot(Seed, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+/**
+ * Pseudo-random hash function (3D input)
+ * @param Seed 3D input value for hashing
+ * @return Pseudo-random value in range [0, 1]
+ */
+float Hash(float3 Seed)
+{
+	return frac(sin(dot(Seed, float3(12.9898, 78.233, 45.164))) * 43758.5453);
+}
+
+/**
+ * Pseudo-random hash function (4D input)
+ * @param Seed 4D input value for hashing
+ * @return Pseudo-random value in range [0, 1]
+ */
+float Hash(float4 Seed)
+{
+	return frac(
+		sin(dot(Seed, float4(12.9898, 78.233, 45.164, 94.673))) * 43758.5453
+	);
+}
+
+/**
+ * Generate random 2D gradient vector for noise functions
+ * @param CellPosition Cell coordinates in noise grid
+ * @param Seed Optional seed offset for variation
+ * @return Normalized 2D gradient vector
+ */
+float2 Gradient(float2 CellPosition, float Seed = 0.f)
+{
+	CellPosition = CellPosition + float2(Seed * 127.1, Seed * 311.7);
+	float Angle = Hash(CellPosition) * 2.0 * PI;
+	return float2(cos(Angle), sin(Angle));
+}
+
+/**
+ * Generate random 4D gradient vector for noise functions
+ * @param CellPosition Cell coordinates in 4D noise grid
+ * @param Seed Optional seed offset for variation
+ * @return Normalized 4D gradient vector on unit hypersphere
+ */
+float4 Gradient4D(float4 CellPosition, float Seed = 0.f)
+{
+	CellPosition = CellPosition + float4(
+		Seed * 127.1,
+		Seed * 311.7,
+		Seed * 74.7,
+		Seed * 183.3
+	);
+
+	float4 Random = float4(
+		Hash(CellPosition),
+		Hash(CellPosition + 127.1),
+		Hash(CellPosition + 269.5),
+		Hash(CellPosition + 419.2)
+	);
+
+	// Normalize to unit sphere
+	float4 Direction = Random * 2.0 - 1.0;
+	return normalize(Direction);
+}
+
+/**
+ * Hash-based gradient calculation for Perlin noise
+ * Uses bit manipulation for efficient gradient selection
+ * @param Hash Hash value (0-7 range after masking)
+ * @param X X-coordinate offset
+ * @param Y Y-coordinate offset
+ * @return Gradient dot product result
+ */
+float HashGradient(int Hash, float X, float Y)
+{
+	int H = Hash & 7;
+	float U = H < 4 ? X : Y;
+	float V = H < 4 ? Y : X;
+	return ((H & 1) ? -U : U) + ((H & 2) ? -V : V);
+}
+
+/**
+ * Quintic polynomial smoothing function (5th degree)
+ * Provides C2-continuous interpolation: f(t) = 6t^5 - 15t^4 + 10t^3
+ * @param T Input value to smooth (typically [0, 1])
+ * @return Smoothed value with zero 1st and 2nd derivatives at endpoints
+ */
+float QuinticSmooth(float T)
+{
+	return T * T * T * (T * (T * 6.0 - 15.0) + 10.0);
+}
+
+/**
+ * Quintic polynomial smoothing function (2D vector version)
+ * @param T 2D input value to smooth (typically [0, 1])
+ * @return Component-wise smoothed 2D value
+ */
+float2 QuinticSmooth(float2 T)
+{
+	return T * T * T * (T * (T * 6.0 - 15.0) + 10.0);
+}

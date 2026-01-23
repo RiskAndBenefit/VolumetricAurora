@@ -1,0 +1,86 @@
+#include "/Engine/Public/Platform.ush"
+struct FAuroraSplineInfo
+{
+    int StartIndex;
+    int PointCount;
+    int pad0;
+    int pad1;
+};
+
+StructuredBuffer<float4> InPoints;
+StructuredBuffer<FAuroraSplineInfo> InSplines;
+int InSplineCount;
+float InMapSize;
+float2 InMapCenter;
+RWTexture2D<float> OutSDF;
+
+float2 FindCubicBezier(float2 Point0, float2 Point1, float2 Point2, float2 Point3, float Alpha)
+{
+    float InverseAlpha = 1.0 - Alpha;
+    
+    return Point0 * (InverseAlpha * InverseAlpha * InverseAlpha) +
+    3 * Point1 * Alpha * (InverseAlpha * InverseAlpha) +
+    3 * Point2 * (Alpha * Alpha) * InverseAlpha +
+    Point3 * (Alpha * Alpha * Alpha);
+}
+
+float FindMinDist(float2 WorldPosXY, float2 Point1, float2 Point2)
+{
+    float2 AtoBVec = Point2 - Point1;
+    // 수선의 발까지 거리
+    float DistToFop = (dot(WorldPosXY - Point1, AtoBVec)) / dot(AtoBVec, AtoBVec);
+    DistToFop = clamp(DistToFop, 0, 1);
+    
+    return length(((Point1 - WorldPosXY) + DistToFop * AtoBVec));
+
+}
+
+// 스레드 블록(워크 그룹) : 스레드 집합, 스레드끼리 공유 메모리(LDS) 나눠 쓸 수 있음
+// 그리드 : 특정 작업을 위해 Dispatch 명령으로(C++) 할당한 스레드 블록의 총 집합
+// C++에서 Dispatch(64, 64, 1) -> 64 * 64그룹 -> 512 * 8 그룹 * 64스레드 -> 512 * 512 스레드
+// 가로 8 세로 8 깊이 1 구조로 그룹 묶음
+[numthreads(8, 8, 1)]
+
+// SV_GroupThreadID : 스레드 블록 내에서 상대 좌표
+// SV_GroupID : 그리드에서 스레드 블록 좌표
+// SV_DispatchThreadID : 그리드에서의 스레드 절대 좌표
+// 512*512 각각의 픽셀에 스레드 할당해서 SV_DispatchThreadID로 받고 인덱싱할때 그대로 쓰면 됨.
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    float2 TexSize;
+    
+    OutSDF.GetDimensions(TexSize.x, TexSize.y);
+    
+    float2 WorldPosXY = (id.xy / TexSize - 0.5) * InMapSize + InMapCenter;
+    
+    float MinDist = InMapSize;
+    for (int SplineIndex = 0; SplineIndex < InSplineCount; SplineIndex++)
+    {
+        FAuroraSplineInfo SplineInfo = InSplines[SplineIndex];
+        
+        float2 PrevPoint = InPoints[SplineInfo.StartIndex];
+        
+        for (int PointIndex = SplineInfo.StartIndex; PointIndex < SplineInfo.StartIndex + SplineInfo.PointCount - 1; PointIndex += 3)
+        {
+            float2 Point0 = InPoints[PointIndex].xy;
+            float2 Point1 = InPoints[PointIndex + 1].xy;
+            float2 Point2 = InPoints[PointIndex + 2].xy;
+            float2 Point3 = InPoints[PointIndex + 3].xy;
+            
+            int Subdivision = 64;
+            for (int BezierIndex = 1; BezierIndex <= Subdivision; BezierIndex++)
+            {
+                float Alpha = (float) BezierIndex / (float) Subdivision;
+                float2 BezierPoint = FindCubicBezier(Point0, Point1, Point2, Point3, Alpha);
+                
+                float Distance = FindMinDist(WorldPosXY, PrevPoint, BezierPoint);
+                MinDist = min(MinDist, Distance);
+                
+                PrevPoint = BezierPoint;
+            }
+            
+        }
+
+    }
+    OutSDF[id.xy] = MinDist;
+}

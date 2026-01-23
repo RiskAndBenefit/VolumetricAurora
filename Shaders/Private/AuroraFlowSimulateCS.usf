@@ -1,0 +1,507 @@
+/**
+ * AuroraFlowSimulateCS.usf
+ * Aurora particle flow simulation using Semi-Lagrangian advection
+ * Simulates density field evolution with control point influence and obstacle interaction
+ *
+ * Features:
+ * - Semi-Lagrangian advection for stable particle transport
+ * - Multiple control point types (gravity, vortex, spiral, curl)
+ * - Obstacle deflection and particle extinction
+ * - Frame-rate independent emission/extinction via DeltaTime
+ * - Aurora element-based density control
+ */
+
+#include "/Engine/Public/Platform.ush"
+#include "/VolumetricAuroraShaders/Private/ControlPoint.ush"
+
+struct FControlPointInfoGPU
+{
+	// 16 bytes
+	uint		Type;				// Control point type (e.g. CP_GRAVITY, CP_VORTEX, CP_CURL, etc.)
+	uint		IsGlobal;			// Whether this control point applies globally (ignores attenuation start/end)
+	float2		Position;			// Control point center position in UV space
+};
+
+struct FSingleForceControlPointGPU
+{
+	// 16 bytes
+	float	ForceStrength;			// Primary force magnitude (signed if direction is implicit)
+	float	AttenuationStart;		// Distance at which attenuation begins (full strength inside)
+	float	AttenuationEnd;			// Distance at which force influence reaches zero
+	float	AttenuationExponent;	// Exponent shaping edge falloff (higher = sharper drop near boundary)
+};
+
+struct FDoubleForceControlPointGPU
+{
+	// Block 2: 16 bytes
+	float	ForceStrength;
+	float	AttenuationStart;
+	float	AttenuationEnd;
+	float	AttenuationExponent;
+
+	// 16 bytes
+	// Secondary force channel (used by control points with multiple force components,
+	// e.g. Source+Emission, Sink+Fade, Radial+Rotation)
+	float	ForceStrength2;
+	float	AttenuationStart2;
+	float	AttenuationEnd2;
+	float	AttenuationExponent2;
+};
+
+struct FTripleForceControlPointGPU
+{
+	// 16 bytes
+	float	ForceStrength;
+	float	AttenuationStart;
+	float	AttenuationEnd;
+	float	AttenuationExponent;
+
+	// 16 bytes
+	// Secondary force channel (used by control points with multiple force components,
+	// e.g. Source+Emission, Sink+Fade, Radial+Rotation)
+	float	ForceStrength2;
+	float	AttenuationStart2;
+	float	AttenuationEnd2;
+	float	AttenuationExponent2;
+
+	// 16 bytes
+	// Third force channel
+	// e.g. Spiral(Vortex + Sink + Attenuation)
+	float	ForceStrength3;
+	float	AttenuationStart3;
+	float	AttenuationEnd3;
+	float	AttenuationExponent3;
+};
+
+struct FDipoleControlPointGPU
+{
+	// 16 bytes
+	float	ForceStrength;
+	float	AttenuationStart;
+	float	AttenuationEnd;
+	float	AttenuationExponent;
+
+	// 16 bytes
+	float2	DipoleDirection;	// Dipole axis direction (normalized)
+	float	_padding1[2];
+};
+
+struct FCurlControlPointGPU
+{
+	// 16 bytes
+	float	ForceStrength;
+	float	AttenuationStart;
+	float	AttenuationEnd;
+	float	AttenuationExponent;
+
+	// 16 bytes
+	/* For curl only */
+	float	CurlFrequency;		// Curl noise base frequency
+	float	CurlAnimationSpeed;	// Curl noise temporal animation speed
+	uint	CurlOctaves;		// Number of curl noise octaves
+	float	CurlLacunarity;		// Frequency multiplier per octave
+
+	// 16 bytes
+	float	CurlGain;			// Amplitude multiplier per octave
+	float	CurlAmplitude;		// Base amplitude of curl noise
+	float	_padding1[2];			// Padding for 16-byte alignment
+};
+
+
+// Double-buffered density textures for stable advection
+RWTexture2D<float4> FrontBuffer;
+Texture2D<float4> BackBuffer;
+SamplerState Sampler;
+
+// Simulation parameters
+float Time;
+float DeltaTime;
+float2 BaseFlow;
+StructuredBuffer<FControlPointInfoGPU>			ControlPointsInfo;
+uint NumControlPoints;
+StructuredBuffer<FSingleForceControlPointGPU>	SingleForceControlPoints;
+StructuredBuffer<FDoubleForceControlPointGPU>	DoubleForceControlPoints;
+StructuredBuffer<FTripleForceControlPointGPU>	TripleForceControlPoints;
+StructuredBuffer<FDipoleControlPointGPU>		DipoleControlPoints;
+StructuredBuffer<FCurlControlPointGPU>			CurlControlPoints;
+
+// Obstacle system parameters
+Texture2D ObstacleMap;
+SamplerState ObstacleSampler;
+uint bHasObstacle;
+
+// Aurora element control (emitter/extinction zones)
+Texture2D AuroraElementsMap;
+SamplerState AuroraElementsSampler;
+
+// Emitter noise parameters
+float EmitterNoiseFrequency;
+float EmitterNoiseSpeed;
+float EmitterNoiseStrength;
+
+// Control point type constants
+#define CP_NONE				0
+#define CP_SOURCE			1
+#define CP_SINK				2
+#define CP_VORTEX			3
+#define CP_SPIRAL			4
+#define CP_DIPOLE			5
+#define CP_CURL				6
+#define CP_EMITTER			7
+#define CP_ATTENUATOR		8
+
+#define EPSILON				0.001f
+#define DELTA_TIME_SCALE	1.f
+
+/**
+ * Apply obstacle deflection to velocity
+ * Particles slide along obstacle surfaces based on distance field normals
+ *
+ * @param Velocity Current velocity vector
+ * @param ObstacleSample Current texture coordinate
+ * @return Deflected velocity vector
+ */
+float2 ApplyObstacleDeflection(float2 Velocity, float4 ObstacleSample)
+{
+	if (bHasObstacle == 0)
+		return Velocity;
+
+	float2 Normal = ObstacleSample.rg * 2.0 - 1.0;  // Normal (RG channels)
+	float Distance = ObstacleSample.b;               // Distance (B channel)
+	float Mask = ObstacleSample.a;                   // Mask (A channel)
+
+	// Apply deflection in empty space near obstacles
+	// Mask < 0.9: empty space (not inside obstacle)
+	// Distance < ObstacleInfluenceRadius: close to obstacle
+	float ObstacleInfluenceRadius = 0.05;
+	if (Distance < ObstacleInfluenceRadius && Mask < 0.9)
+	{
+		// Skip when obstacle is behind particle
+		if (dot(Velocity, Normal) > 0.f)
+		{
+			return Velocity;
+		}
+
+		// Store original speed before any modification
+		float OriginalSpeed = length(Velocity);
+
+		float2 Tangent1 = float2(-Normal.y, Normal.x);
+		float2 Tangent2 = float2(Normal.y, -Normal.x);
+		float Angle1 = dot(Velocity, Tangent1);
+		float Angle2 = dot(Velocity, Tangent2);
+		float2 Tangent;
+		float TangentDirection;
+		if (abs(Angle1) < abs(Angle2))
+		{
+			Tangent = Tangent1;
+			TangentDirection = sign(Angle1);
+		}
+		else
+		{
+			Tangent = Tangent2;
+			TangentDirection = sign(Angle2);
+		}
+
+		// If no clear direction, default to one side
+		if (abs(TangentDirection) < 0.01)
+		{
+			TangentDirection = 1.0;
+		}
+
+		// Deflect along tangent while preserving original speed
+		float2 DeflectedVelocity = Tangent * TangentDirection * OriginalSpeed;
+
+		// Calculate influence based on distance (smooth falloff)
+		float Influence = 1.0 - saturate(Distance / ObstacleInfluenceRadius);
+		Influence = smoothstep(0.f, 1.f, Influence);
+
+		// Blend original and deflected velocity
+		Velocity = lerp(Velocity, DeflectedVelocity, Influence);
+
+		// Optional: gentle friction only at very close range
+		if (Distance < ObstacleInfluenceRadius * 0.1)
+		{
+			Velocity *= 0.9;
+		}
+	}
+
+	return Velocity;
+}
+
+void GetFlowVelocityAndDensity(
+	float2 UV,
+	inout float2 FlowVelocity,
+	inout float CurrentDensity,
+	inout float DensityFade)
+{
+	FlowVelocity = BaseFlow;
+	CurrentDensity = 0;
+	DensityFade = 0;
+
+	uint SingleCPIndex = 0;
+	uint DoubleCPIndex = 0;
+	uint TripleCPIndex = 0;
+	uint DipoleCPIndex = 0;
+	uint CurlCPIndex = 0;
+	
+	// Sum velocities from all control points
+	for (uint i = 0; i < NumControlPoints; i++)
+	{
+		float2 ControlPointVelocity;
+
+		switch (ControlPointsInfo[i].Type)
+		{
+		case CP_SOURCE:
+			{
+				FDoubleForceControlPointGPU SourceCP = DoubleForceControlPoints[DoubleCPIndex];
+				ControlPointVelocity = ComputeGravity(
+					UV,
+					ControlPointsInfo[i].Position,
+					SourceCP.ForceStrength,
+					SourceCP.AttenuationStart,
+					SourceCP.AttenuationEnd,
+					SourceCP.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal
+				);
+
+				float EmittedParticleDensity = ComputeEmittedParticleDensity(
+					UV,
+					ControlPointsInfo[i].Position,
+					SourceCP.ForceStrength2,
+					SourceCP.AttenuationStart2,
+					SourceCP.AttenuationEnd2,
+					SourceCP.AttenuationExponent2,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				CurrentDensity = max(CurrentDensity, EmittedParticleDensity);
+				
+				DoubleCPIndex++;
+				break;
+			}
+		case CP_SINK:
+			{
+				FDoubleForceControlPointGPU SinkCP = DoubleForceControlPoints[DoubleCPIndex];
+				ControlPointVelocity = ComputeGravity(
+					UV,
+					ControlPointsInfo[i].Position,
+					SinkCP.ForceStrength,
+					SinkCP.AttenuationStart,
+					SinkCP.AttenuationEnd,
+					SinkCP.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal
+				);
+
+				DensityFade += ComputeAttenuationStrength(
+					UV,
+					ControlPointsInfo[i].Position,
+					SinkCP.ForceStrength2,
+					SinkCP.AttenuationStart2,
+					SinkCP.AttenuationEnd2,
+					SinkCP.AttenuationExponent2,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				DoubleCPIndex++;
+				break;
+			}
+		case CP_VORTEX:
+			{
+				FDoubleForceControlPointGPU VortexCP = DoubleForceControlPoints[DoubleCPIndex];
+				ControlPointVelocity = ComputeVortex(
+					UV,
+					ControlPointsInfo[i].Position,
+					VortexCP.ForceStrength,
+					VortexCP.AttenuationStart,
+					VortexCP.AttenuationEnd,
+					VortexCP.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal
+				);
+
+				DensityFade += ComputeAttenuationStrength(
+					UV,
+					ControlPointsInfo[i].Position,
+					VortexCP.ForceStrength2,
+					VortexCP.AttenuationStart2,
+					VortexCP.AttenuationEnd2,
+					VortexCP.AttenuationExponent2,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				DoubleCPIndex++;
+				break;
+			}
+		case CP_SPIRAL:
+			{
+				FTripleForceControlPointGPU SpiralCP = TripleForceControlPoints[TripleCPIndex];
+				ControlPointVelocity = ComputeSpiral(
+					UV,
+					ControlPointsInfo[i].Position,
+					SpiralCP.ForceStrength,
+					SpiralCP.AttenuationStart,
+					SpiralCP.AttenuationEnd,
+					SpiralCP.AttenuationExponent,
+					SpiralCP.ForceStrength2,
+					SpiralCP.AttenuationStart2,
+					SpiralCP.AttenuationEnd2,
+					SpiralCP.AttenuationExponent2,
+					ControlPointsInfo[i].IsGlobal
+				);
+
+				DensityFade += ComputeAttenuationStrength(
+					UV,
+					ControlPointsInfo[i].Position,
+					SpiralCP.ForceStrength3,
+					SpiralCP.AttenuationStart3,
+					SpiralCP.AttenuationEnd3,
+					SpiralCP.AttenuationExponent3,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				TripleCPIndex++;
+				break;
+			}
+		case CP_DIPOLE:
+			{
+				FDipoleControlPointGPU Dipole = DipoleControlPoints[DipoleCPIndex];
+				ControlPointVelocity = ComputeDipole(
+					UV,
+					ControlPointsInfo[i].Position,
+					Dipole.DipoleDirection,
+					Dipole.ForceStrength,
+					Dipole.AttenuationStart,
+					Dipole.AttenuationEnd,
+					Dipole.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal
+				);
+				DipoleCPIndex++;
+				break;
+			}
+		case CP_CURL:
+			{
+				FCurlControlPointGPU Curl = CurlControlPoints[CurlCPIndex];
+				ControlPointVelocity = ComputeCurl(
+					UV,
+					ControlPointsInfo[i].Position,
+					Curl.CurlFrequency,
+					Time * Curl.CurlAnimationSpeed,
+					Curl.CurlOctaves,
+					Curl.CurlLacunarity,
+					Curl.CurlGain,
+					Curl.CurlAmplitude,
+					Curl.ForceStrength,
+					Curl.AttenuationStart,
+					Curl.AttenuationEnd,
+					Curl.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal
+				);
+				CurlCPIndex++;
+				break;
+			}
+		case CP_EMITTER:
+			{
+				FSingleForceControlPointGPU EmitterCP = SingleForceControlPoints[SingleCPIndex];
+
+				float EmittedParticleDensity = ComputeEmittedParticleDensity(
+					UV,
+					ControlPointsInfo[i].Position,
+					EmitterCP.ForceStrength,
+					EmitterCP.AttenuationStart,
+					EmitterCP.AttenuationEnd,
+					EmitterCP.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				CurrentDensity = max(CurrentDensity, EmittedParticleDensity);
+				
+				SingleCPIndex++;
+				break;
+			}
+		case CP_ATTENUATOR:
+			{
+				FSingleForceControlPointGPU AttenuatorCP = SingleForceControlPoints[SingleCPIndex];
+
+				DensityFade += ComputeAttenuationStrength(
+					UV,
+					ControlPointsInfo[i].Position,
+					AttenuatorCP.ForceStrength,
+					AttenuatorCP.AttenuationStart,
+					AttenuatorCP.AttenuationEnd,
+					AttenuatorCP.AttenuationExponent,
+					ControlPointsInfo[i].IsGlobal,
+					DeltaTime * DELTA_TIME_SCALE
+				);
+				
+				SingleCPIndex++;
+				break;
+			}
+		default:
+			ControlPointVelocity = float2(0.f, 0.f);
+		}
+
+		FlowVelocity += ControlPointVelocity;
+	}
+
+	FlowVelocity *= DeltaTime;
+}
+
+/**
+ * Main compute shader for aurora flow simulation
+ * Implements Semi-Lagrangian advection with emission/extinction
+ * Thread group: 8x8x1
+ */
+[numthreads(8, 8, 1)]
+void MainCS(uint3 DispatchThreadID : SV_DispatchThreadID)
+{
+	uint2 TextureSize;
+	FrontBuffer.GetDimensions(TextureSize.x, TextureSize.y);
+
+	if (DispatchThreadID.x >= TextureSize.x || DispatchThreadID.y >= TextureSize.y)
+		return;
+
+	uint2 PixelCoord = DispatchThreadID.xy;
+	float2 UV = (float2(PixelCoord) + 0.5f) / float2(TextureSize);
+
+	float4 ObstacleSample = ObstacleMap.SampleLevel(ObstacleSampler, UV, 0);
+	if (ObstacleSample.a > EPSILON)
+	{
+		FrontBuffer[PixelCoord] = float4(0.f, 0.f, 0.f, 1.f);
+		return;
+	}
+	
+	// Method 1 Semi-Lagrangian Advection
+	// Stable and fast, but exhibits numerical dissipation (blurring over time)
+	float2 FlowVelocity;
+	float CurrentDensity = 0.f;
+	float DensityFade = 0.f;
+	GetFlowVelocityAndDensity(UV, FlowVelocity, CurrentDensity, DensityFade);
+	FlowVelocity = ApplyObstacleDeflection(FlowVelocity, ObstacleSample);
+	
+	float2 PrevUV = UV - FlowVelocity;
+	float LastDensity = BackBuffer.SampleLevel(Sampler, PrevUV, 0).r;
+
+	// Sample AuroraElementsMap for emitter/extinction values
+	float4 Elements = AuroraElementsMap.SampleLevel(AuroraElementsSampler, UV, 0);
+	float EmitterValue = Elements.r;
+	
+	if (EmitterValue > EPSILON)
+	{
+		float2 NoiseUV = UV * EmitterNoiseFrequency;
+		NoiseUV += Time * EmitterNoiseSpeed * float2(1.f, 0.f);	// Dir vector is magic number
+		float EmitterNoise = SimplexNoise2D(NoiseUV);
+		EmitterNoise *= EmitterNoiseStrength;
+		EmitterValue = saturate(EmitterValue + EmitterNoise);
+	}
+	DensityFade += Elements.g * DeltaTime * DELTA_TIME_SCALE;
+	// Apply emitter/extinction with DeltaTime for frame-rate independent simulation
+	CurrentDensity = max(max(CurrentDensity, LastDensity), EmitterValue);
+	CurrentDensity -= DensityFade;
+	CurrentDensity = clamp(CurrentDensity, 0.f, 1.f);
+
+	FrontBuffer[PixelCoord] = float4(CurrentDensity, CurrentDensity, CurrentDensity, 1.0f);
+}

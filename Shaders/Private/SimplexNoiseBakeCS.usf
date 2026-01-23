@@ -1,0 +1,286 @@
+﻿#include "/Engine/Public/Platform.ush"
+#include "/VolumetricAuroraShaders/Private/Noise.ush"
+
+int NoiseType; // 0=Value, 1=Gradient, 2=Perlin, 3=Simplex, 4=Curl
+float NoiseScale;
+int Octaves;
+float Persistence;
+float Lacunarity;
+float2 Offset;
+float Time;
+float Seed;
+float Amplitude;
+float Contrast;
+
+// Curl Noise 전용
+float BaseFrequency;
+float2 AnimDir;
+
+int IsDual;
+int IsSeamless; // Seamless tiling 여부
+
+RWTexture2D<float4> OutTexture;
+
+float2 SafeNormalize2(float2 v)
+{
+    float len2 = dot(v, v);
+    if (len2 > 1e-8f)
+    {
+        return v * rsqrt(len2);
+    }
+    return float2(0.0f, 0.0f);
+}
+
+float CalculateScalarFBM(float2 Pos)
+{
+    float Noise = 0.0f;
+
+    switch (NoiseType)
+    {
+        case 0:
+        {
+                Noise = ValueFBM(
+                Pos,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude
+            );
+            // ValueFBM이 0..1 보장인지 불명확하면 아래 라인 유지가 안전합니다.
+            // Noise = Noise * 0.5f + 0.5f;
+                break;
+            }
+        case 1:
+        {
+                Noise = GradientFBM(
+                Pos,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude
+            );
+                Noise = Noise * 0.5f + 0.5f;
+                break;
+            }
+        case 2:
+        {
+                Noise = PerlinFBM(
+                Pos,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude
+            );
+                Noise = Noise * 0.5f + 0.5f;
+                break;
+            }
+        case 3:
+        default:
+        {
+                Noise = SimplexFBM(
+                Pos,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude,
+                Seed
+            );
+                Noise = Noise * 0.5f + 0.5f;
+                break;
+            }
+    }
+
+    return Noise;
+}
+
+float2 CalculateCurlFBM(float2 Pos)
+{
+    float2 Curl = CurlNoiseFBM(
+        Pos,
+        BaseFrequency,
+        Time,
+        Octaves,
+        Lacunarity,
+        Persistence,
+        Amplitude,
+        AnimDir
+    );
+
+    // normalize가 0벡터에서 NaN 날 수 있어서 SafeNormalize 사용
+    Curl = SafeNormalize2(Curl);
+
+    // -1..1 -> 0..1
+    Curl = Curl * 0.5f + 0.5f;
+
+    return Curl;
+}
+
+//-----------------------------------------------------------------------------
+// Seamless 버전 (NoiseType별 분기)
+//-----------------------------------------------------------------------------
+float CalculateSeamlessScalarFBM(float2 UV)
+{
+    float Noise = 0.0f;
+
+    switch (NoiseType)
+    {
+        case 0: // Value
+        {
+            Noise = SeamlessValueFBM(
+                UV,
+                NoiseScale,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude
+            );
+            break;
+        }
+        case 1: // Gradient
+        {
+            Noise = SeamlessGradientFBM(
+                UV,
+                NoiseScale,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude,
+                Seed
+            );
+            Noise = Noise * 0.5f + 0.5f;
+            break;
+        }
+        case 2: // Perlin
+        {
+            Noise = SeamlessPerlinFBM(
+                UV,
+                NoiseScale,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude
+            );
+            Noise = Noise * 0.5f + 0.5f;
+            break;
+        }
+        case 3: // Simplex
+        default:
+        {
+            Noise = SeamlessSimplexFBM(
+                UV,
+                NoiseScale,
+                Octaves,
+                Lacunarity,
+                Persistence,
+                Amplitude,
+                Seed
+            );
+            Noise = Noise * 0.5f + 0.5f;
+            break;
+        }
+    }
+
+    return Noise;
+}
+
+float2 CalculateSeamlessCurlFBM(float2 UV)
+{
+    float2 Curl = SeamlessCurlNoiseFBM(
+        UV,
+        NoiseScale,
+        Octaves,
+        Lacunarity,
+        Persistence,
+        Amplitude,
+        Seed
+    );
+
+    Curl = SafeNormalize2(Curl);
+    Curl = Curl * 0.5f + 0.5f;
+
+    return Curl;
+}
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 id : SV_DispatchThreadID)
+{
+    uint width = 0;
+    uint height = 0;
+    OutTexture.GetDimensions(width, height);
+
+    if (id.x >= width || id.y >= height)
+    {
+        return;
+    }
+
+    // Seamless 경로: UV는 0..1 범위 (torus 매핑)
+    if (IsSeamless != 0)
+    {
+        float2 UV = (float2(id.xy) + Offset) / float2(width, height);
+
+        // Curl 경로
+        if (NoiseType == 4)
+        {
+            float2 Curl01 = CalculateSeamlessCurlFBM(UV);
+            OutTexture[id.xy] = float4(Curl01.x, Curl01.y, 0.0f, 1.0f);
+            return;
+        }
+
+        // Scalar 경로
+        float Noise = CalculateSeamlessScalarFBM(UV);
+
+        if (IsDual != 0)
+        {
+            float2 UV2 = UV + float2(0.5f, 0.5f);
+            float Noise2 = CalculateSeamlessScalarFBM(UV2);
+
+            float NoiseDiff = (Noise - Noise2);
+            float Thin = smoothstep(-0.1f, 0.1f, NoiseDiff);
+            Noise = (0.5f - abs(Thin - 0.5f)) * 2.0f;
+
+            Noise = saturate(Noise);
+            Noise = Noise * Noise;
+        }
+
+        Noise = saturate(Noise);
+        Noise = pow(Noise, max(Contrast, 1e-6f));
+
+        OutTexture[id.xy] = float4(Noise, Noise, Noise, 1.0f);
+        return;
+    }
+
+    // 기존 Non-Seamless 경로
+    float2 BasePos = (id.xy + Offset) * NoiseScale;
+
+    // Curl 경로 (RG에 벡터 저장)
+    if (NoiseType == 4)
+    {
+        float2 Curl01 = CalculateCurlFBM(BasePos);
+        OutTexture[id.xy] = float4(Curl01.x, Curl01.y, 0.0f, 1.0f);
+        return;
+    }
+
+    // Scalar 경로
+    float Noise = CalculateScalarFBM(BasePos);
+
+    if (IsDual != 0)
+    {
+        float2 DualPos = (id.xy + Offset + float2(123.4f, 567.8f)) * NoiseScale;
+        float Noise2 = CalculateScalarFBM(DualPos);
+
+        float NoiseDiff = (Noise - Noise2);
+
+        // 차(NoiseDiff)에서 0 근처 밴드를 뽑아 "얇은 커튼" 만들기
+        float Thin = smoothstep(-0.1f, 0.1f, NoiseDiff);
+        Noise = (0.5f - abs(Thin - 0.5f)) * 2.0f;
+
+        Noise = saturate(Noise);
+        Noise = Noise * Noise;
+    }
+
+    // 대비(감마) 조정: pow는 입력이 0..1일 때만 안전하게 의도대로 나옵니다.
+    Noise = saturate(Noise);
+    Noise = pow(Noise, max(Contrast, 1e-6f));
+
+    OutTexture[id.xy] = float4(Noise, Noise, Noise, 1.0f);
+}
