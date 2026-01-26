@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "/Engine/Public/Platform.ush"
 
 RWTexture2D<float4> RenderTarget;

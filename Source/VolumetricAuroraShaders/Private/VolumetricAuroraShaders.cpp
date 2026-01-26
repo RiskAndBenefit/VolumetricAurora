@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "VolumetricAuroraShaders.h"
 #include "Misc/Paths.h"
 #include "ShaderCore.h"

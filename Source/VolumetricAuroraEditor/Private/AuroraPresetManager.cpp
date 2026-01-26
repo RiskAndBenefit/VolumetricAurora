@@ -1,5 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "AuroraPresetManager.h"
 #include "AuroraPresetAsset.h"
@@ -40,7 +39,7 @@ void UAuroraPresetManager::Deinitialize()
 void UAuroraPresetManager::SavePreset(UAuroraPresetBase* InPreset, const FString& NewPresetName)
 {
 	FString PresetPath = PresetVirtualPath + TEXT("/") + NewPresetName;
-	UAuroraPresetBase* TargetAsset = Cast<UAuroraPresetBase>(StaticLoadObject(UAuroraPresetBase::StaticClass(), nullptr, *PresetPath));
+	UAuroraPresetBase* TargetAsset = Cast<UAuroraPresetBase>(StaticLoadObject(UAuroraPresetBase::StaticClass(), nullptr, *PresetPath, nullptr, LOAD_NoWarn | LOAD_Quiet));
 	if (!TargetAsset)
 	{
 		TGuardValue<bool> PresetAddedDelegateGuard(FVolumetricAuroraEditorModule::bIsCreatingAssetWhileSaving, true);
@@ -51,6 +50,12 @@ void UAuroraPresetManager::SavePreset(UAuroraPresetBase* InPreset, const FString
 	}
 	if (TargetAsset)
 	{
+		FString AbsolutePath = FPackageName::LongPackageNameToFilename(PresetPath, FPackageName::GetAssetPackageExtension());
+		if (IPlatformFile::GetPlatformPhysical().IsReadOnly(*AbsolutePath))
+		{
+			FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(TEXT("Cannot overwrite the default preset\n\nPlease save as different name")), FText::FromString(TEXT("Attempt to overwrite default preset")));
+			return;
+		}
 		TargetAsset->CopyFrom(InPreset);
 
 		UPackage* TargetPackage = TargetAsset->GetPackage();

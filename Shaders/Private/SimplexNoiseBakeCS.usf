@@ -1,4 +1,6 @@
-﻿#include "/Engine/Public/Platform.ush"
+﻿// Copyright (c) 2026 R&B. All rights reserved.
+
+#include "/Engine/Public/Platform.ush"
 #include "/VolumetricAuroraShaders/Private/Noise.ush"
 
 int NoiseType; // 0=Value, 1=Gradient, 2=Perlin, 3=Simplex, 4=Curl

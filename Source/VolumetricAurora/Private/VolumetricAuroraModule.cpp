@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "VolumetricAuroraModule.h"
 #include "Modules/ModuleManager.h"

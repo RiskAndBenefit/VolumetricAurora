@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "SDFBakerCustomization.h"
 #include "SplineSDFTextureBakerComponent.h"
 #include "SSaveSDFTextureAsWidget.h"

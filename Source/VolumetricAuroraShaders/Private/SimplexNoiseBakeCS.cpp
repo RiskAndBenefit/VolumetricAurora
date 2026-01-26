@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "SimplexNoiseBakeCS.h"
 
 IMPLEMENT_GLOBAL_SHADER(

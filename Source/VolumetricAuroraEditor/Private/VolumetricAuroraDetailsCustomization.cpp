@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "VolumetricAuroraDetailsCustomization.h"
 #include "VolumetricAurora.h"
@@ -6,6 +6,7 @@
 #include "AuroraPresetManager.h"
 #include "SSavePresetAsWidget.h"
 #include "AuroraElementsPainterWidget.h"
+#include "SAuroraPreviewViewport.h"
 #include "VolumetricAuroraEditor.h"
 
 #include "DetailLayoutBuilder.h"
@@ -26,6 +27,10 @@
 #include "Blueprint/UserWidget.h"
 #include "Widgets/SWindow.h"
 #include "WidgetBlueprint.h"
+#include "Widgets/Layout/SSplitter.h"
+#include "Widgets/Layout/SScaleBox.h"
+#include "Widgets/Layout/SBox.h"
+
 
 #include "SAuroraTypeSelectorWidget.h"
 
@@ -548,25 +553,83 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 		.FocusWhenFirstShown(true);							// Auto-focus when opened
 
 	// ============================================================
-	// Step 10: Convert UMG widget to Slate widget
+	// Step 10: Create Interactive Preview Viewport
+	// ============================================================
+	//
+	// SAuroraPreviewViewport provides Material Editor-style camera controls:
+	// - Left Mouse Drag: Orbit camera around the aurora (like moon orbiting Earth)
+	// - Mouse Wheel: Zoom in/out (adjust distance from focus point)
+	//
+	// The viewport displays the SceneCapture output and handles all camera input,
+	// while the UMG widget handles painting controls (brush size, channel, etc.)
+
+	TSharedPtr<SAuroraPreviewViewport> PreviewViewport = SNew(SAuroraPreviewViewport)
+		.RenderTarget(Aurora->PreviewCaptureTarget)
+		.TargetAurora(Aurora);
+
+	// Store viewport reference for later access if needed
+	Aurora->EditorPreviewViewport = PreviewViewport;
+
+	// ============================================================
+	// Step 10.5: Convert UMG widget to Slate widget
 	// ============================================================
 
 	// TakeWidget(): Converts UUserWidget (UMG) to SWidget (Slate)
 	// This creates the Slate widget tree from Blueprint hierarchy
 	// IMPORTANT: Can only be called once per widget instance
-	TSharedRef<SWidget> SlateWidget = Aurora->EditorPaintWidgetInstance->TakeWidget();
+	TSharedRef<SWidget> PainterWidget = Aurora->EditorPaintWidgetInstance->TakeWidget();
+
+	// ============================================================
+	// Step 10.6: Create Split Layout
+	// ============================================================
+	//
+	// Window layout using SSplitter:
+	// +-----------------------+------------------+
+	// |                       |                  |
+	// |   Preview Viewport    |  Painter Widget  |
+	// |   (Orbit Camera)      |  (Paint Tools)   |
+	// |                       |                  |
+	// +-----------------------+------------------+
+	//
+	// Left panel: Interactive 3D preview with orbit camera controls
+	// Right panel: Blueprint widget with painting tools (brush, channels, bake button)
 
 	Aurora->EditorPaintWindow->SetContent(
-		SNew(SBox)
-		.HAlign(HAlign_Fill)
-		.VAlign(VAlign_Fill)
+		SNew(SSplitter)
+		.Orientation(Orient_Horizontal)
+	
+		// Left Panel: Square Preview (keeps 1:1)
+		+ SSplitter::Slot()
+		.Value(0.4f)
 		[
-			SlateWidget
+			SNew(SScaleBox)
+			.Stretch(EStretch::ScaleToFit)                 // Stretch to area, remain aspect ratio
+			.StretchDirection(EStretchDirection::Both)     // allow increasing/decreasing size
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Center)
+			[
+				// "Desired Size"를 정사각형으로 만들어 SScaleBox가 1:1로 스케일하게 함
+				SNew(SBox)
+				.WidthOverride(2048.f)
+				.HeightOverride(2048.f)
+				[
+					PreviewViewport.ToSharedRef()
+				]
+			]
+		]
+	
+		// Right Panel: Painting Controls (Blueprint Widget)
+		+ SSplitter::Slot()
+		.Value(0.6f)		// 40% width for paint tools
+		[
+			SNew(SBox)
+			.HAlign(HAlign_Fill)
+			.VAlign(VAlign_Fill)
+			[
+				PainterWidget
+			]
 		]
 	);
-	
-	// Set window content to our UMG widget
-	Aurora->EditorPaintWindow->SetContent(SlateWidget);
 
 	// ============================================================
 	// Step 11: Register window close callback
@@ -600,9 +663,11 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 						AVolumetricAurora* AuroraPtr = WeakAurora.Get();
 
 						// Cleanup order matters:
-						// 1. Destroy preview system first (uses aurora's resources)
-						// 2. Clear window references
-						// 3. Clear widget instance
+						// 1. Clear viewport first (holds references to SceneCapture)
+						// 2. Destroy preview system (uses aurora's resources)
+						// 3. Clear window references
+						// 4. Clear widget instance
+						AuroraPtr->EditorPreviewViewport.Reset();
 						AuroraPtr->DestroyPreviewAurora();
 						AuroraPtr->EditorPaintWindow.Reset();
 						AuroraPtr->EditorPaintWidgetInstance = nullptr;
@@ -674,7 +739,7 @@ FReply FVolumetricAuroraDetailsCustomization::OnBakeToTextureClicked()
 
 	// Asset path in Content Browser (Plugin Content folder)
 	// /VolumetricAurora/ refers to plugin mount point, not /Game/
-	FString PackagePath = TEXT("/VolumetricAurora/Textures/FlowElementMapTextures/");
+	FString PackagePath = TEXT("/VolumetricAurora/Textures/FlowElementMap/");
 	FString PackageName = PackagePath + AssetName;
 
 	// Create package (container for asset)
@@ -778,19 +843,43 @@ FReply FVolumetricAuroraDetailsCustomization::OnNewAuroraPresetButtonClicked()
 	}
 
 	EAppReturnType::Type ReturnType = AskSaving(SelectedAuroras[0].Get());
-
 	if (ReturnType == EAppReturnType::Cancel)
 	{
 		return FReply::Handled();
 	}
 
-	GEditor->GetTimerManager()->SetTimerForNextTick([]()
+	// If the selector window is already open, just bring it to front and reuse it
+	if (AuroraTypeSelectorWindow.IsValid())
+	{
+		// Ensure the window is still alive in Slate (not a stale pointer)
+		if (FSlateApplication::Get().FindWidgetWindow(AuroraTypeSelectorWindow.ToSharedRef()).IsValid())
+		{
+			AuroraTypeSelectorWindow->BringToFront(true);
+			return FReply::Handled();
+		}
+
+		// Window was closed/destroyed, clear the stale reference
+		AuroraTypeSelectorWindow.Reset();
+	}
+
+	GEditor->GetTimerManager()->SetTimerForNextTick([this]()
 		{
 			TSharedRef<SWindow> NewWindow = SNew(SWindow)
 				.Title(FText::FromString("Select Aurora Type"))
 				.SizingRule(ESizingRule::Autosized)
 				.SupportsMaximize(false)
 				.SupportsMinimize(false);
+
+			// Cache the window reference to prevent multiple instances
+			AuroraTypeSelectorWindow = NewWindow;
+
+			// Clear cached reference when the window is closed
+			NewWindow->SetOnWindowClosed(
+				FOnWindowClosed::CreateLambda([this](const TSharedRef<SWindow>&)
+				{
+					AuroraTypeSelectorWindow.Reset();
+				})
+			);
 
 			NewWindow->SetContent(SNew(SAuroraTypeSelectorWidget)
 				.InParentWindow(NewWindow));
@@ -980,7 +1069,7 @@ FVolumetricAuroraDetailsCustomization::BuildPresetDropdown()
 				SNew(SBorder)
 					.BorderImage(FStyleDefaults::GetNoBrush())
 					.BorderBackgroundColor(FLinearColor(0.12f, 0.12f, 0.12f))
-					.Padding(FMargin(1, 2))
+					.Padding(FMargin(1, 3))
 					[
 						SNew(SHorizontalBox)
 
@@ -1023,7 +1112,7 @@ FVolumetricAuroraDetailsCustomization::BuildPresetDropdown()
 		]
 	+ SHorizontalBox::Slot()
 		.AutoWidth()
-		.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
+		.Padding(FMargin(4.f, 0.f, 0.f, 0.f))
 		[
 			SNew(SButton)
 				.ButtonStyle(FAppStyle::Get(), "SimpleButton")	
@@ -1042,9 +1131,16 @@ FVolumetricAuroraDetailsCustomization::BuildPresetDropdown()
 						return FReply::Handled();
 					})
 				[
-					SNew(SImage)
-						.Image(FAppStyle::GetBrush("Icons.BrowseContent"))
-						.ColorAndOpacity(FSlateColor::UseForeground())
+					SNew(SBox)
+						.WidthOverride(16.f)
+						.HeightOverride(16.f)
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						[
+							SNew(SImage)
+								.Image(FAppStyle::GetBrush("Icons.BrowseContent"))
+								.ColorAndOpacity(FSlateColor::UseForeground())
+						]
 				]
 
 		];

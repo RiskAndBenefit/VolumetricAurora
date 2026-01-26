@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -37,7 +39,7 @@ inline int32 GetResolutionValue(ETextureResolution Resolution)
 	case ETextureResolution::Res512:  return 512;
 	case ETextureResolution::Res1024: return 1024;
 	case ETextureResolution::Res2048: return 2048;
-	default: return 512;
+	default: return 2048;
 	}
 }
 
@@ -194,6 +196,11 @@ class VOLUMETRICAURORA_API UPotentialFlowAuroraPreset : public UAuroraPresetBase
 	GENERATED_BODY()
 public:
 
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
+#endif
+
 	// ========================================================================
 	// Render Targets
 	// ========================================================================
@@ -214,6 +221,18 @@ public:
 	UPROPERTY()
 	UTextureRenderTarget2D* DisplayBuffer = nullptr;
 
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	bool bDisplayControlPoints = true;
+
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	bool bDisplayAttenuationRange = true;
+	
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	float DisplaySize = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	float DisplayZPos = 0.f;
+	
 	// ========================================================================
 	// Simulation Parameters
 	// ========================================================================

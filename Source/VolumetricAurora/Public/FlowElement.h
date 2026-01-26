@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -17,7 +19,7 @@ enum class EControlPointType : uint8
 	Spiral			UMETA(DisplayName = "Spiral"),			// Sink + rotation
 	Dipole			UMETA(DisplayName = "Dipole"),			// Directional flow (source+sink pair)
 	Curl			UMETA(DisplayName = "Curl"),			// Curl noise field
-	// LocalizedCurl	UMETA(DisplayName = "LocalizedCurl"),		// Curl noise field with localized, distance-attenuated influence
+	Warp			UMETA(DisplayName = "Warp"),			// Domain warping noise field
 	Emitter			UMETA(DisplayName = "Emitter"),		// Emit particle
 	Attenuator		UMETA(DisplayName = "Attenuator"),		// Attenuate particle
 };
@@ -56,6 +58,40 @@ struct FFlowElement
 			EditConditionHides))
 	EControlPointRange Range = EControlPointRange::Global;
 
+	/** Show advanced parameters for Curl/Warp noise types */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Curl || Type == EControlPointType::Warp",
+			EditConditionHides))
+	bool bShowAdvanced = false;
+
+	// ========================================================================
+	// Debug Parameter
+	// ========================================================================
+
+	/** Whether to visualize the control point's location */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "DebugVisualization",
+		meta = (
+			EditCondition = "Range != EControlPointRange::Global",
+			EditConditionHides))
+	bool bDisplayControlPoint = true;
+	
+	/** Whether to visualize the control point's attenuation range */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "DebugVisualization",
+		meta = (
+			EditCondition = "Range != EControlPointRange::Global",
+			EditConditionHides))
+	bool bDisplayAttenuationRange = true;
+	
 	// ========================================================================
 	// Position-based Control Points (Source, Sink, Vortex, Spiral, Dipole)
 	// ========================================================================
@@ -337,9 +373,9 @@ struct FFlowElement
 	float DipoleExponent = 2.0f;
 
 	// ========================================================================
-	// Curl Noise Parameters (Curl / LocalizedCurl)
+	// Curl Noise Parameters (Curl)
 	// ========================================================================
-
+	
 	/** Spatial frequency of curl noise (higher = smaller, more detailed flow patterns) */
 	UPROPERTY(
 		EditAnywhere,
@@ -370,7 +406,8 @@ struct FFlowElement
 		meta = (
 			EditCondition = "Type == EControlPointType::Curl",
 			EditConditionHides,
-			UIMin = "1", UIMax = "5"))
+			UIMin = "1", UIMax = "5",
+			ClampMin = "1", ClampMax = "5"))
 	int32 CurlOctaves = 3;
 
 	/** Frequency increase per detail layer (higher = sharper detail steps) */
@@ -379,9 +416,10 @@ struct FFlowElement
 		BlueprintReadWrite,
 		Category = "AuroraControlPoint",
 		meta = (
-			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1",
+			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1 && bShowAdvanced",
 			EditConditionHides,
-			UIMin = "1.0", UIMax = "3.0", ClampMin = "1.0"))
+			UIMin = "1.0", UIMax = "3.0",
+			ClampMin = "1.0"))
 	float CurlLacunarity = 2.0f;
 
 	/** Amplitude multiplier per octave (typically 0.5) */
@@ -390,9 +428,10 @@ struct FFlowElement
 		BlueprintReadWrite,
 		Category = "AuroraControlPoint",
 		meta = (
-			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1",
+			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1 && bShowAdvanced",
 			EditConditionHides,
-			UIMin = "0.3", UIMax = "1.0", ClampMin = "0.3"))
+			UIMin = "0.3", UIMax = "1.0",
+			ClampMin = "0.3"))
 	float CurlGain = 0.5f;
 
 	/** Overall intensity scale of curl noise */
@@ -401,9 +440,10 @@ struct FFlowElement
 		BlueprintReadWrite,
 		Category = "AuroraControlPoint",
 		meta = (
-			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1",
+			EditCondition = "Type == EControlPointType::Curl && CurlOctaves > 1 && bShowAdvanced",
 			EditConditionHides,
-			UIMin = "0.5", UIMax = "2.0", ClampMin = "0.5"))
+			UIMin = "0.5", UIMax = "2.0",
+			ClampMin = "0.5"))
 	float CurlAmplitude = 1.f;
 
 	/** Final flow strength multiplier for curl field */
@@ -453,4 +493,242 @@ struct FFlowElement
 			UIMin = "1.0", UIMax = "8.0",
 			ClampMin = "0.001"))
 	float CurlExponent = 2.0f;
+
+	// ========================================================================
+	// Domain Warping Parameters (Warp)
+	// ========================================================================
+
+	/** Number of iterative domain warp passes (more = more distortion) */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp",
+			EditConditionHides,
+			UIMin = "1", UIMax = "5",
+			ClampMin = "1", ClampMax = "5"))
+	int32 WarpIterations = 2;
+
+	/** Initial warp displacement strength */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "2.0",
+			ClampMin = "0.0"))
+	float WarpDisplacement = 1.0f;
+
+	/** Strength decay per warp iteration */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "1.0",
+			ClampMin = "0.0"))
+	float WarpFalloff = 0.5f;
+
+	/** Output contrast adjustment (higher = more contrast) */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.1", UIMax = "3.0",
+			ClampMin = "0.1"))
+	float WarpContrast = 1.0f;
+
+	/** Animation displacement magnitude */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "2.0",
+			ClampMin = "0.0"))
+	float WarpAnimAmplitude = 0.5f;
+
+	/** Animation speed multiplier */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "2.0",
+			ClampMin = "0.0"))
+	float WarpAnimationSpeed = 0.5f;
+
+	/** X-axis warping noise scale */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.1", UIMax = "4.0",
+			ClampMin = "0.1"))
+	float WarpXScale = 1.0f;
+
+	/** Y-axis warping noise scale */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.1", UIMax = "4.0",
+			ClampMin = "0.1"))
+	float WarpYScale = 1.0f;
+
+	/** Result noise sample scale */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.1", UIMax = "4.0",
+			ClampMin = "0.1"))
+	float WarpNoiseScale = 1.0f;
+
+	/** X-axis noise sampling offset */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides))
+	FVector2D WarpXOffset = FVector2D(0.0f, 0.0f);
+
+	/** Y-axis noise sampling offset */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides))
+	FVector2D WarpYOffset = FVector2D(100.0f, 0.0f);
+
+	/** Result noise sampling offset */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && bShowAdvanced",
+			EditConditionHides))
+	FVector2D WarpNoiseOffset = FVector2D(0.0f, 100.0f);
+
+	/** FBM octave count for warp noise */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp",
+			EditConditionHides,
+			UIMin = "1", UIMax = "5",
+			ClampMin = "1", ClampMax = "5"))
+	int32 WarpOctaves = 3;
+
+	/** Frequency multiplier per octave */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && WarpOctaves > 1 && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "1.0", UIMax = "3.0",
+			ClampMin = "1.0"))
+	float WarpLacunarity = 2.0f;
+
+	/** Amplitude multiplier per octave */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && WarpOctaves > 1 && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.3", UIMax = "1.0",
+			ClampMin = "0.3"))
+	float WarpGain = 0.5f;
+
+	/** Initial FBM amplitude */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && WarpOctaves > 1 && bShowAdvanced",
+			EditConditionHides,
+			UIMin = "0.5", UIMax = "2.0",
+			ClampMin = "0.5"))
+	float WarpInitialAmplitude = 1.0f;
+
+	/** Final flow strength multiplier for warp field */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "1.0",
+			ClampMin = "0.0"))
+	float WarpFlowStrength = 0.5f;
+
+	/** Distance at which warp attenuation begins (full strength inside) */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && Range == EControlPointRange::Local",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "1.5",
+			ClampMin = "0.0"))
+	float WarpAttenuationStart = 0.0f;
+
+	/** Distance at which warp influence reaches zero */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && Range == EControlPointRange::Local",
+			EditConditionHides,
+			UIMin = "0.0", UIMax = "1.5",
+			ClampMin = "0.0"))
+	float WarpAttenuationEnd = 0.5f;
+
+	/** Distance-based falloff exponent for warp influence (higher = sharper attenuation) */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Warp && Range == EControlPointRange::Local",
+			EditConditionHides,
+			UIMin = "1.0", UIMax = "8.0",
+			ClampMin = "0.001"))
+	float WarpExponent = 2.0f;
 };

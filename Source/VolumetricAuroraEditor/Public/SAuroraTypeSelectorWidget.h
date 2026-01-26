@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #pragma once
 
@@ -65,5 +65,10 @@ private:
 
 	void InitAuroraTypes();
 
+	/* Hover Animation */
+	TArray<FCurveSequence> HoverSeqs;
+	TArray<FCurveHandle>   HoverCurves;
 
+	void HandleTypeHovered(int32 Index);
+	void HandleTypeUnhovered(int32 Index);
 };

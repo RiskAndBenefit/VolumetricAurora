@@ -1,4 +1,5 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "VolumetricAurora.h"
 
 #include "VolumetricAuroraModule.h"
@@ -128,29 +129,7 @@ void AVolumetricAurora::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 
 	FName PropertyName = PropertyChangedEvent.Property->GetFName();
 
-	// 2. bDisplayControlPoints changed = Toggle display visibility
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(AVolumetricAurora, bDisplayControlPoints))
-	{
-		// If bDisplayControlPoints changed to true, populate DebugControlPoints array
-		if (bDisplayControlPoints)
-		{
-			UpdateControlPointsDebugInfo();
-		}
-	}
-
-	// 3. DisplaySize changed = Display size changed (need to update debug info)
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(AVolumetricAurora, DisplaySize))
-	{
-		UpdateControlPointsDebugInfo();
-	}
-
-	// 4. DisplayZPos changed = Display Z position changed (need to update debug info)
-	if (PropertyName == GET_MEMBER_NAME_CHECKED(AVolumetricAurora, DisplayZPos))
-	{
-		UpdateControlPointsDebugInfo();
-	}
-
-	// 5. MemberProperty check for top-level changed member
+	// MemberProperty check for top-level changed member
 	if (PropertyChangedEvent.MemberProperty)
 	{
 		FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
@@ -222,12 +201,6 @@ void AVolumetricAurora::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 #if WITH_EDITOR
-	// If bDisplayControlPoints is enabled, initialize
-	if (bDisplayControlPoints)
-	{
-		UpdateControlPointsDebugInfo();
-	}
-
 	if (!SDFBakerComponent && GIsEditor && !IsTemplate())
 	{
 		UClass* SDFBakerClass = StaticLoadClass(UObject::StaticClass(), nullptr, TEXT("/Script/VolumetricAuroraEditor.SplineSDFTextureBakerComponent"));
@@ -392,12 +365,6 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 	// CPU to GPU structure conversion
 	if (bControlPointsDirty)
 	{
-
-#if WITH_EDITOR
-		// Update ControlPoint Display
-		UpdateControlPointsDebugInfo();
-#endif
-
 		// Restart Simulation only if bResetSimulationOnElementChange is enabled
 		if (FlowPreset->bResetSimulationOnElementChange)
 		{
@@ -407,8 +374,10 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		ControlPointsInfo.Reset();
 		SingleForceControlPoints.Reset();
 		DoubleForceControlPoints.Reset();
+		TripleForceControlPoints.Reset();
 		DipoleControlPoints.Reset();
 		CurlControlPoints.Reset();
+		WarpControlPoints.Reset();
 
 		for (const FFlowElement& CP : FlowPreset->ControlPoints)
 		{
@@ -509,6 +478,32 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 				CurlControlPoints.Add(CurlCP);
 				break;
 			}
+			case EControlPointType::Warp:
+			{
+				FWarpControlPointGPU WarpCP = {};
+				WarpCP.Iterations = static_cast<uint32>(CP.WarpIterations);
+				WarpCP.Displacement = CP.WarpDisplacement;
+				WarpCP.Falloff = CP.WarpFalloff;
+				WarpCP.Contrast = CP.WarpContrast;
+				WarpCP.AnimAmplitude = CP.WarpAnimAmplitude;
+				WarpCP.AnimationSpeed = CP.WarpAnimationSpeed;
+				WarpCP.XScale = CP.WarpXScale;
+				WarpCP.YScale = CP.WarpYScale;
+				WarpCP.NoiseScale = CP.WarpNoiseScale;
+				WarpCP.XOffset = FVector2f(CP.WarpXOffset);
+				WarpCP.YOffset = FVector2f(CP.WarpYOffset);
+				WarpCP.NoiseOffset = FVector2f(CP.WarpNoiseOffset);
+				WarpCP.Octaves = static_cast<uint32>(CP.WarpOctaves);
+				WarpCP.Lacunarity = CP.WarpLacunarity;
+				WarpCP.Gain = CP.WarpGain;
+				WarpCP.InitialAmplitude = CP.WarpInitialAmplitude;
+				WarpCP.FlowStrength = CP.WarpFlowStrength;
+				WarpCP.AttenuationStart = CP.WarpAttenuationStart;
+				WarpCP.AttenuationEnd = CP.WarpAttenuationEnd;
+				WarpCP.AttenuationExponent = CP.WarpExponent;
+				WarpControlPoints.Add(WarpCP);
+				break;
+			}
 			case EControlPointType::Emitter:
 			{
 				FSingleForceControlPointGPU EmitterCP = {};
@@ -570,10 +565,6 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 	{
 		AuroraElementsTexResource = FlowPreset->AuroraElementsMap->GetResource();
 	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("AuroraFlowSimulator: AuroraElementsMap is NULL!"));
-	}
 
 	// 2. Enqueue render command
 	ENQUEUE_RENDER_COMMAND(SimulateAuroraFlow)
@@ -590,6 +581,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 				TripleForceCP = TripleForceControlPoints,
 				DipoleCP = DipoleControlPoints,
 				CurlCP = CurlControlPoints,
+				WarpCP = WarpControlPoints,
 				ObstacleTexResource,
 				AuroraElementsTexResource,
 				FlowPreset,
@@ -668,12 +660,21 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 			GraphBuilder.QueueBufferUpload(CurlCPBuffer, CurlCP.GetData(), sizeof(FCurlControlPointGPU)* NumCurlCP);
 		FRDGBufferSRVRef CurlCPSRV = GraphBuilder.CreateSRV(CurlCPBuffer);
 
+		uint32 NumWarpCP = WarpCP.Num();
+		BufferCount = FMath::Max(NumWarpCP, 1u);
+		Desc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FWarpControlPointGPU), BufferCount);
+		FRDGBufferRef WarpCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("WarpControlPoint"));
+		if (NumWarpCP > 0)
+			GraphBuilder.QueueBufferUpload(WarpCPBuffer, WarpCP.GetData(), sizeof(FWarpControlPointGPU)* NumWarpCP);
+		FRDGBufferSRVRef WarpCPSRV = GraphBuilder.CreateSRV(WarpCPBuffer);
+
 		FAuroraFlowSimulateCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FAuroraFlowSimulateCS::FParameters>();
 		PassParameters->FrontBuffer = FrontBufferUAV;
 		PassParameters->BackBuffer = BackBufferSRV;
 		PassParameters->Sampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 		PassParameters->Time = AccumulatedTime;
-		PassParameters->DeltaTime = TickTime;
+		// restrict delta time upper limit to consistent simulation(120 fps)
+		PassParameters->DeltaTime = FMath::Min(TickTime, 0.0083f);
 		PassParameters->BaseFlow = BaseFlowVec;
 		PassParameters->ControlPointsInfo = ControlPointsInfoSRV;
 		PassParameters->NumControlPoints = NumControlPoints;
@@ -682,6 +683,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		PassParameters->TripleForceControlPoints = TripleForceCPSRV;
 		PassParameters->DipoleControlPoints = DipoleCPSRV;
 		PassParameters->CurlControlPoints = CurlCPSRV;
+		PassParameters->WarpControlPoints = WarpCPSRV;
 
 		// Obstacle Texture 안전 처리
 		if (ObstacleTexResource)
@@ -945,28 +947,32 @@ void AVolumetricAurora::BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset
 }
 
 #if WITH_EDITOR
-void AVolumetricAurora::UpdateControlPointsDebugInfo()
+void AVolumetricAurora::RenderControlPointsDebug() const
 {
-	if (!TargetAurora) return;
+	// Control Points Debug Display using DrawDebugSphere
+	if (!GetWorld() || !TargetAurora)
+	{
+		return;
+	}
 
 	UPotentialFlowAuroraPreset* PFAuroraPreset =
 		Cast<UPotentialFlowAuroraPreset>(TargetAurora);
-	if (!PFAuroraPreset) return;
+	if (!PFAuroraPreset || !PFAuroraPreset->bDisplayControlPoints) return;
 
-	// Remove existing debug point info
-	DebugControlPoints.Empty();
-	DebugControlPoints.Reset();
-
+	// Use DisplaySize as sphere radius
+	float SphereRadius = PFAuroraPreset->DisplaySize * 10000.0f;
+	
 	// Find Volume
 	UStaticMeshComponent* Volume = nullptr;
 	TArray<UActorComponent*> Comps =
 		GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("Volume"));
-
+	
 	if (Comps.Num() == 0) return;
 	Volume = Cast<UStaticMeshComponent>(Comps[0]);
 	if (!Volume) return;
 
-	int CurlPointNum = 0;
+	
+	int PointWithoutPositionNum = 0;
 
 	// Store Control Point position and type info only
 	for (const FFlowElement& ControlPoint : PFAuroraPreset->ControlPoints)
@@ -976,79 +982,216 @@ void AVolumetricAurora::UpdateControlPointsDebugInfo()
 			continue;
 		}
 
+		bool bIsGlobal = ControlPoint.Range == EControlPointRange::Global;
+
 		// Calculate position
 		const FVector Extent = Volume->Bounds.BoxExtent;
 		const FVector Center = Volume->Bounds.Origin;
 
 		FVector Pos = Center;
 
-		if (ControlPoint.Type == EControlPointType::Curl)
+		if ((ControlPoint.Type == EControlPointType::Curl
+			|| ControlPoint.Type == EControlPointType::Warp)
+			&& bIsGlobal)
 		{
 			// Curl: Separate placement (on edge)
 			Pos.X += 1.1f * Extent.X;
-			Pos.Y += (0.125f * CurlPointNum - 0.5f) * 2.0f * Extent.Y;
-			Pos.Z += DisplayZPos;
-			CurlPointNum++;
+			Pos.Y += (0.125f * PointWithoutPositionNum - 0.5f) * 2.0f * Extent.Y;
+			Pos.Z += PFAuroraPreset->DisplayZPos;
+			PointWithoutPositionNum++;
 		}
 		else
 		{
 			// Others: Reflect struct Position (0~1 -> inside volume)
 			Pos.X += (ControlPoint.Position.X - 0.5f) * 2.0f * Extent.X;
 			Pos.Y += (ControlPoint.Position.Y - 0.5f) * 2.0f * Extent.Y;
-			Pos.Z += DisplayZPos;
+			Pos.Z += PFAuroraPreset->DisplayZPos;
 		}
-
-		// Store position and type (rendered with DrawDebugSphere in Tick)
-		DebugControlPoints.Add(TPair<FVector, EControlPointType>(Pos, ControlPoint.Type));
-	}
-}
-
-void AVolumetricAurora::RenderControlPointsDebug()
-{
-	// Control Points Debug Display using DrawDebugSphere
-	if (!bDisplayControlPoints || !GetWorld())
-	{
-		return;
-	}
-
-	// Use DisplaySize as sphere radius
-	float SphereRadius = DisplaySize * 10000.0f;
-
-	for (const TPair<FVector, EControlPointType>& DebugPoint : DebugControlPoints)
-	{
-		const FVector& Position = DebugPoint.Key;
-		const EControlPointType& Type = DebugPoint.Value;
 
 		// Assign color based on EControlPointType
 		FColor DisplayColor = FColor::White;
+		bool bHasSecondForce = false;
+		bool bHasThirdForce = false;
+		float AttenuationStart = 0.f;
+		float AttenuationEnd = 0.f;
+		float AttenuationStart2 = 0.f;
+		float AttenuationEnd2 = 0.f;
+		float AttenuationStart3 = 0.f;
+		float AttenuationEnd3 = 0.f;
 
-		switch (Type)
+		switch (ControlPoint.Type)
 		{
 		case EControlPointType::Source:
 			DisplayColor = FColor::Green;
+			AttenuationStart = ControlPoint.RadialAttenuationStart;
+			AttenuationEnd = ControlPoint.RadialAttenuationEnd;
+			bHasSecondForce = true;
+			AttenuationStart2 = ControlPoint.EmissionAttenuationStart;
+			AttenuationEnd2 = ControlPoint.EmissionAttenuationEnd;
 			break;
 		case EControlPointType::Sink:
 			DisplayColor = FColor::Red;
+			AttenuationStart = ControlPoint.RadialAttenuationStart;
+			AttenuationEnd = ControlPoint.RadialAttenuationEnd;
+			bHasSecondForce = true;
+			AttenuationStart2 = ControlPoint.FadeAttenuationStart;
+			AttenuationEnd2 = ControlPoint.FadeAttenuationEnd;
 			break;
 		case EControlPointType::Dipole:
 			DisplayColor = FColor::Blue;
+			AttenuationStart = ControlPoint.DipoleAttenuationStart;
+			AttenuationEnd = ControlPoint.DipoleAttenuationEnd;
 			break;
 		case EControlPointType::Vortex:
 			DisplayColor = FColor::Cyan;
+			AttenuationStart = ControlPoint.RotationAttenuationStart;
+			AttenuationEnd = ControlPoint.RotationAttenuationEnd;
+			bHasSecondForce = true;
+			AttenuationStart2 = ControlPoint.FadeAttenuationStart;
+			AttenuationEnd2 = ControlPoint.FadeAttenuationEnd;
 			break;
 		case EControlPointType::Spiral:
 			DisplayColor = FColor::Magenta;
+			AttenuationStart = ControlPoint.RotationAttenuationStart;
+			AttenuationEnd = ControlPoint.RotationAttenuationEnd;
+			bHasSecondForce = true;
+			AttenuationStart2 = ControlPoint.FadeAttenuationStart;
+			AttenuationEnd2 = ControlPoint.FadeAttenuationEnd;
+			bHasThirdForce = true;
+			AttenuationStart3 = ControlPoint.RadialAttenuationStart;
+			AttenuationEnd3 = ControlPoint.RadialAttenuationEnd;
 			break;
 		case EControlPointType::Curl:
 			DisplayColor = FColor::Yellow;
+			AttenuationStart = ControlPoint.CurlAttenuationStart;
+			AttenuationEnd = ControlPoint.CurlAttenuationEnd;
+			break;
+		case EControlPointType::Warp:
+			DisplayColor = FColor::Orange;
+			AttenuationStart = ControlPoint.WarpAttenuationStart;
+			AttenuationEnd = ControlPoint.WarpAttenuationEnd;
 			break;
 		default:
 			DisplayColor = FColor::White;
 			break;
 		}
 
-		// DrawDebugSphere - High thickness setting for better visibility
-		DrawDebugSphere(GetWorld(), Position, SphereRadius, 8, DisplayColor, false, 0.0f, 0, 1000.0f);
+		if (ControlPoint.bDisplayControlPoint)
+		{
+			// DrawDebugSphere - High thickness setting for better visibility
+			DrawDebugSphere(
+				GetWorld(),
+				Pos,
+				SphereRadius,
+				8,
+				DisplayColor,
+				false,
+				0.0f,
+				0,
+				1000.0f
+			);
+		}
+		
+		if (!bIsGlobal
+			&& PFAuroraPreset->bDisplayAttenuationRange
+			&& ControlPoint.bDisplayAttenuationRange)
+		{
+			DrawDebugCircle(
+				GetWorld(),
+				Pos,
+				AttenuationStart * Extent.X * 2.f,
+				128,
+				DisplayColor,
+				false,
+				-1.f,
+				0,
+				1000.0f,
+				FVector(1, 0, 0),
+				FVector(0, 1, 0),
+				false
+			);
+
+			DrawDebugCircle(
+				GetWorld(),
+				Pos,
+				AttenuationEnd * Extent.X * 2.f,
+				128,
+				DisplayColor,
+				false,
+				-1.f,
+				0,
+				1000.0f,
+				FVector(1, 0, 0),
+				FVector(0, 1, 0),
+				false
+			);
+
+			if (bHasSecondForce)
+			{
+				DrawDebugCircle(
+					GetWorld(),
+					Pos,
+					AttenuationStart2 * Extent.X * 2.f,
+					128,
+					FColor::Silver,
+					false,
+					-1.f,
+					0,
+					1000.0f,
+					FVector(1, 0, 0),
+					FVector(0, 1, 0),
+					false
+				);
+
+				DrawDebugCircle(
+					GetWorld(),
+					Pos,
+					AttenuationEnd2 * Extent.X * 2.f,
+					128,
+					FColor::Silver,
+					false,
+					-1.f,
+					0,
+					1000.0f,
+					FVector(1, 0, 0),
+					FVector(0, 1, 0),
+					false
+				);
+			}
+
+			if (bHasThirdForce)
+			{
+				DrawDebugCircle(
+				GetWorld(),
+				Pos,
+				AttenuationStart3 * Extent.X * 2.f,
+				128,
+				FColor::Turquoise,
+				false,
+				-1.f,
+				0,
+				1000.0f,
+				FVector(1, 0, 0),
+				FVector(0, 1, 0),
+				false
+			);
+
+				DrawDebugCircle(
+					GetWorld(),
+					Pos,
+					AttenuationEnd3 * Extent.X * 2.f,
+					128,
+					FColor::Turquoise,
+					false,
+					-1.f,
+					0,
+					1000.0f,
+					FVector(1, 0, 0),
+					FVector(0, 1, 0),
+					false
+				);
+			}
+		}
 	}
 }
 
@@ -1191,7 +1334,6 @@ AVolumetricAurora* AVolumetricAurora::CreatePreviewAurora()
 	PreviewWorld->PersistentLevel = NewObject<ULevel>(PreviewWorld, TEXT("PersistentLevel"), RF_Transient);
 	PreviewWorld->PersistentLevel->OwningWorld = PreviewWorld;
 	PreviewWorld->PersistentLevel->Model = NewObject<UModel>(PreviewWorld->PersistentLevel, NAME_None, RF_Transient);
-	PreviewWorld->PersistentLevel->Model->Initialize(nullptr, true);
 	PreviewWorld->PersistentLevel->bIsVisible = true;
 
 	// Add level to world
@@ -1340,6 +1482,19 @@ AVolumetricAurora* AVolumetricAurora::CreatePreviewAurora()
 		PreviewActor->SpriteComponent->SetVisibility(false);
 	}
 #endif
+
+	// Hide all SDFBoundVisualizerComponents (wireframe plane visualizers)
+	TArray<UActorComponent*> BoundVisualizers;
+	PreviewActor->GetComponents(UStaticMeshComponent::StaticClass(), BoundVisualizers);
+	for (UActorComponent* Comp : BoundVisualizers)
+	{
+		if (Comp->GetClass()->GetName().Contains(TEXT("SDFBoundVisualizer")))
+		{
+			Cast<UStaticMeshComponent>(Comp)->SetVisibility(false);
+			Cast<UStaticMeshComponent>(Comp)->SetHiddenInGame(true);
+			Comp->SetActive(false);
+		}
+	}
 
 	// === Step 12: Enable ticking for simulation ===
 	PreviewActor->PrimaryActorTick.bCanEverTick = true;

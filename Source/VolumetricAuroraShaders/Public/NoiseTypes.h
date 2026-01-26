@@ -1,4 +1,6 @@
-﻿#pragma once
+﻿// Copyright (c) 2026 R&B. All rights reserved.
+
+#pragma once
 
 #include "CoreMinimal.h"
 #include "NoiseTypes.generated.h"

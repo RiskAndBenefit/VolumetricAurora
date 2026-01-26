@@ -1,4 +1,6 @@
-﻿// RayMarchMaterialGenerator.cpp
+﻿// Copyright (c) 2026 R&B. All rights reserved.
+
+// RayMarchMaterialGenerator.cpp
 
 #include "RayMarchMaterialGenerator.h"
 

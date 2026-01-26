@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 /**
  * DistanceMapBakeCS.h
  * Jump Flooding Algorithm (JFA) compute shader declarations

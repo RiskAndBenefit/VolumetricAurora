@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 ///**
 // * AuroraFlowSimulator.h
 // * Main aurora flow simulation actor

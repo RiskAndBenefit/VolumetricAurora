@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #pragma once
 
@@ -12,6 +12,9 @@
 #include "FlowElement.h"
 
 #include "VolumetricAurora.generated.h"
+
+// Forward declaration for Editor-only Slate widget
+class SAuroraPreviewViewport;
 
 namespace AuroraFlowConstants
 {
@@ -134,6 +137,18 @@ public:
 	* NOTE: Cannot use UPROPERTY - UUserWidget is in UMG module (Editor-only)
 	*/
 	TObjectPtr<class UUserWidget> EditorPaintWidgetInstance;
+
+	/**
+	 * @brief Reference to interactive preview viewport with orbit camera controls
+	 *
+	 * This Slate widget provides Material Editor-style camera navigation:
+	 * - Left Mouse Drag: Orbit camera around the aurora volume
+	 * - Mouse Wheel: Zoom in/out (adjust camera distance)
+	 *
+	 * The camera always focuses on the center of the VolumeBox, allowing users
+	 * to inspect the aurora from any angle while painting elements.
+	 */
+	TSharedPtr<SAuroraPreviewViewport> EditorPreviewViewport;
 
 	/**
 	* @brief Initialize render target for texture painting
@@ -292,23 +307,13 @@ private:
 	/** Curl control points info */
 	TArray<FCurlControlPointGPU> CurlControlPoints;
 
+	/** Warp control points info */
+	TArray<FWarpControlPointGPU> WarpControlPoints;
+
 #if WITH_EDITORONLY_DATA
 	/** Masked billboard base material loaded from path */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInterface> ControlPointMaskedBaseMat = nullptr;
-
-	/**	Aurora control show flag */
-	UPROPERTY(EditAnywhere, Category = "Aurora|FlowDebug")
-	bool bDisplayControlPoints = false;
-
-	UPROPERTY(EditAnywhere, Category = "Aurora|FlowDebug")
-	float DisplaySize = 0.0025f;
-
-	UPROPERTY(EditAnywhere, Category = "Aurora|FlowDebug")
-	float DisplayZPos = 0.f;
-
-	/** Debug text info for control points */
-	TArray<TPair<FVector, EControlPointType>> DebugControlPoints;
 #endif
 
 private:
@@ -322,8 +327,7 @@ private:
 	void BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset* FlowPreset);
 
 #if WITH_EDITOR
-	void UpdateControlPointsDebugInfo();
-	void RenderControlPointsDebug();
+	void RenderControlPointsDebug() const;
 #endif
 
 	float MapSize = 50000.0f;

@@ -1,9 +1,0 @@
-{
-	"BuildId": "43139311",
-	"Modules": 
-	{
-		"VolumetricAurora": "UnrealEditor-VolumetricAurora.dll",
-		"VolumetricAuroraEditor": "UnrealEditor-VolumetricAuroraEditor.dll",
-		"VolumetricAuroraShaders": "UnrealEditor-VolumetricAuroraShaders.dll"
-	}
-}

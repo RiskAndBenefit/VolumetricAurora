@@ -1,4 +1,5 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "SplineSDFTextureBakerComponent.h"
 
 #include "VolumetricAurora.h"
@@ -204,12 +205,18 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 
 	FString TexturePath = Owner->GetPluginPath() + "/Textures/SDFTextures/" + NewTextureName;
 
-	UTexture2D* TargetTexture = Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, *TexturePath));
+	UTexture2D* TargetTexture = Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, *TexturePath, nullptr, LOAD_NoWarn | LOAD_Quiet));
 
 	UPackage* Package = nullptr;
 
 	if (TargetTexture)
 	{
+		FString AbsolutePath = FPackageName::LongPackageNameToFilename(TexturePath, FPackageName::GetAssetPackageExtension());
+		if (IPlatformFile::GetPlatformPhysical().IsReadOnly(*AbsolutePath))
+		{
+			FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(TEXT("Cannot overwrite the default Texture\n\nPlease save as different name")), FText::FromString(TEXT("Attempt to overwrite default texture")));
+			return;
+		}
 		Package = TargetTexture->GetPackage();
 	}
 	else

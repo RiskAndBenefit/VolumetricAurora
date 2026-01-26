@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #pragma once
 #include "../Private/Noise.ush"
 
@@ -5,7 +7,6 @@
 #define AURORA_RAYMARCH_STEPS 64
 #endif
 
-// 텍스처는 레지스터에 바인딩되는 특수 객체라서 구조체에 넣으면 최적화 안된다고 함
 struct FNoiseParams
 {
     float2 Speed;

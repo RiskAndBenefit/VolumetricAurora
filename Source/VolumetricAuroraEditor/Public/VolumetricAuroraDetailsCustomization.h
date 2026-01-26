@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #pragma once
 
@@ -127,6 +127,15 @@ private:
 	 * Used for RenderTarget updates and communication with WBP.
 	 */
 	TObjectPtr<UUserWidget> PaintWidgetInstance;
+
+	/**
+	 * @brief Reference to the Aurora Type Selector window
+	 *
+	 * Cached to prevent opening multiple selector windows.
+	 * If the window is already open, it will be brought to front instead of creating a new one.
+	 * Reset when the window is closed.
+	 */
+	TSharedPtr<SWindow> AuroraTypeSelectorWindow;
 
 	// ==========================
 	// Aurora Preset Combo UI

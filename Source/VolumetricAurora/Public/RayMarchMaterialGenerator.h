@@ -1,4 +1,6 @@
-﻿// RayMarchMaterialGenerator.h
+﻿// Copyright (c) 2026 R&B. All rights reserved.
+
+// RayMarchMaterialGenerator.h
 
 #pragma once
 

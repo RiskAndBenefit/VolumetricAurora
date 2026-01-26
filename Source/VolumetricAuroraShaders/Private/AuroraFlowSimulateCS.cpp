@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 /**
  * AuroraFlowSimulateCS.cpp
  * Shader registration for aurora flow simulation compute shader

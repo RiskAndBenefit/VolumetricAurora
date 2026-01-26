@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 /**
  * DistanceMapBakeCS.usf
  * Jump Flooding Algorithm (JFA) for Distance Field generation

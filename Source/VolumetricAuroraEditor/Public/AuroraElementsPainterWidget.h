@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright (c) 2026 R&B. All rights reserved.
 
 #pragma once
 
@@ -8,6 +8,7 @@
 
 // Forward declarations
 class UTextureRenderTarget2D;
+class SAuroraPreviewViewport;
 
 /**
  * @brief Base class for Aurora Elements Painter Widget
@@ -100,14 +101,20 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "Aurora Painter")
 	TObjectPtr<UTextureRenderTarget2D> CurrentRenderTarget;
 
+	// ========================================================================
+	// Orbit Camera Viewport Integration
+	// ========================================================================
+
 	/**
-	 * @brief Image widget that displays preview aurora render
+	 * @brief Cached reference to the orbit camera viewport Slate widget
 	 *
-	 * BindWidget meta:
-	 * - Automatically binds to widget named "PreviewImage" in WBP
-	 * - Compile error if widget with matching name doesn't exist
-	 * - Ensures type safety (must be UImage)
+	 * This widget provides Material Editor-style camera controls:
+	 * - Left Mouse Drag: Orbit around aurora
+	 * - Mouse Wheel: Zoom in/out
+	 *
+	 * The viewport is created by VolumetricAuroraDetailsCustomization and
+	 * placed alongside this widget using SSplitter layout.
+	 * This reference is available for Blueprint access if needed.
 	 */
-	UPROPERTY(meta = (BindWidget))
-	class UImage* PreviewImage;
+	TSharedPtr<SAuroraPreviewViewport> PreviewViewportWidget;
 };

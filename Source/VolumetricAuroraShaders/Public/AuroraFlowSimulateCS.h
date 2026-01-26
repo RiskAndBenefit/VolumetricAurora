@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 /**
  * AuroraFlowSimulateCS.h
  * Aurora flow simulation compute shader declarations
@@ -108,7 +110,43 @@ struct FCurlControlPointGPU
 	// 16 bytes
 	float	CurlGain;			// Amplitude multiplier per octave
 	float	CurlAmplitude;		// Base amplitude of curl noise
-	float	_padding1[2];			// Padding for 16-byte alignment
+	float	_padding[2];
+};
+
+struct FWarpControlPointGPU
+{
+	// Block 1: 16 bytes - Attenuation
+	float	FlowStrength;			// Output flow strength multiplier
+	float	AttenuationStart;
+	float	AttenuationEnd;
+	float	AttenuationExponent;
+
+	// Block 2: 16 bytes - Warp control
+	uint32	Iterations;				// Number of iterative warp passes
+	float	Displacement;			// Initial warp displacement strength
+	float	Falloff;				// Strength decay per iteration
+	float	Contrast;				// Output contrast adjustment
+
+	// Block 3: 16 bytes - Animation and scales
+	float	AnimAmplitude;			// Animation displacement magnitude
+	float	AnimationSpeed;			// Animation speed multiplier
+	float	XScale;					// X-axis warping noise scale
+	float	YScale;					// Y-axis warping noise scale
+
+	// Block 4: 16 bytes - Result scale and FBM
+	float	NoiseScale;				// Result noise sample scale
+	uint32	Octaves;				// FBM octave count
+	float	Lacunarity;				// Frequency multiplier per octave
+	float	Gain;					// Amplitude multiplier per octave
+
+	// Block 5: 16 bytes - FBM amplitude, XOffset
+	float	InitialAmplitude;		// Initial FBM amplitude
+	FVector2f	XOffset;			// X-axis noise sampling offset
+	float	_padding1;
+
+	// Block 6: 16 bytes - YOffset, NoiseOffset
+	FVector2f	YOffset;			// Y-axis noise sampling offset
+	FVector2f	NoiseOffset;		// Result noise sampling offset
 };
 
 /**
@@ -166,7 +204,12 @@ public:
 			StructuredBuffer<FCurlControlPointGPU>,
 			CurlControlPoints
 		)
-	
+
+		SHADER_PARAMETER_RDG_BUFFER_SRV(
+			StructuredBuffer<FWarpControlPointGPU>,
+			WarpControlPoints
+		)
+
 		// Obstacle system
 		SHADER_PARAMETER_TEXTURE(Texture2D, ObstacleMap)
 		SHADER_PARAMETER_SAMPLER(SamplerState, ObstacleSampler)

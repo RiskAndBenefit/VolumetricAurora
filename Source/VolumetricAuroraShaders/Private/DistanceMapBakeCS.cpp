@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 /**
  * DistanceMapBakeCS.cpp
  * Shader registration for Jump Flooding Algorithm compute shaders

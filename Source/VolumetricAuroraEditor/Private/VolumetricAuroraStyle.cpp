@@ -1,3 +1,5 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
 #include "VolumetricAuroraStyle.h"
 #include "Styling/SlateStyleRegistry.h"
 #include "Styling/SlateBrush.h"

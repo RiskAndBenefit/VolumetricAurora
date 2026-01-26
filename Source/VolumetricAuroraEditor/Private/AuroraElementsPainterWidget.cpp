@@ -1,4 +1,7 @@
-﻿#include "AuroraElementsPainterWidget.h"
+﻿// Copyright (c) 2026 R&B. All rights reserved.
+
+#include "AuroraElementsPainterWidget.h"
+#include "SAuroraPreviewViewport.h"
 
 #include "VolumetricAurora.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -8,23 +11,19 @@
 
 void UAuroraElementsPainterWidget::SetPreviewRenderTarget(UTextureRenderTarget2D* RenderTarget)
 {
-	// Valid inputs
-	if (!PreviewImage)
-	{
-		UE_LOG(LogTemp, Error, TEXT("SetPreviewRenderTarget: PreviewImage widget is null"));
-		UE_LOG(LogTemp, Error, TEXT("Solution: Check WBP has Image widget named 'PreviewImage'"));
-		return;
-	}
-
+	// ========================================================================
+	// SetPreviewRenderTarget: Configure Preview Display
+	// ========================================================================
+	//
+	// NOTE: The interactive preview viewport (SAuroraPreviewViewport) is now
+	// created and managed by VolumetricAuroraDetailsCustomization, which places
+	// it alongside this widget using SSplitter layout.
+	
 	if (!RenderTarget)
 	{
 		UE_LOG(LogTemp, Error, TEXT("SetPreviewRenderTarget: RenderTarget is null"));
 		return;
 	}
-
-	// SetBrushResourceObject: Sets UObject as brush resource
-	// Works with UTextureRenderTarget2D (unlike SetBrushFromTexture which expects UTexture2D)
-	PreviewImage->SetBrushResourceObject(RenderTarget);
 
 	// Debug: Verify RenderTarget properties
 	FTextureResource* Resource = RenderTarget->GetResource();
@@ -32,7 +31,6 @@ void UAuroraElementsPainterWidget::SetPreviewRenderTarget(UTextureRenderTarget2D
 	UE_LOG(LogTemp, Log, TEXT("  - RenderTarget: %p"), RenderTarget);
 	UE_LOG(LogTemp, Log, TEXT("  - Resource: %p"), Resource);
 	UE_LOG(LogTemp, Log, TEXT("  - Size: %dx%d"), RenderTarget->SizeX, RenderTarget->SizeY);
-	UE_LOG(LogTemp, Log, TEXT("  - PreviewImage: %p"), PreviewImage);
 }
 
 void UAuroraElementsPainterWidget::UpdatePreview()
@@ -98,7 +96,7 @@ void UAuroraElementsPainterWidget::BakeToTexture()
 	);
 
 	// Asset path: /VolumetricAurora/ refers to plugin mount point
-	FString PackagePath = TEXT("/VolumetricAurora/Textures/FlowElementMapTextures/");
+	FString PackagePath = TEXT("/VolumetricAurora/Textures/FlowElementMap/");
 	FString PackageName = PackagePath + AssetName;
 
 	// ========================================================================

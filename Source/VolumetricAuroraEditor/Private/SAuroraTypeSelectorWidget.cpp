@@ -1,5 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "SAuroraTypeSelectorWidget.h"
 #include "SlateOptMacros.h"
@@ -19,6 +18,16 @@ void SAuroraTypeSelectorWidget::Construct(const FArguments& InArgs)
 	PresetManager = GEditor->GetEditorSubsystem<UAuroraPresetManager>();
 
 	InitAuroraTypes();
+
+	// Initialize per-type hover fade animations (one curve per aurora type)
+	HoverSeqs.SetNum(AuroraTypes.Num());
+	HoverCurves.SetNum(AuroraTypes.Num());
+
+	for (int32 i = 0; i < AuroraTypes.Num(); i++)
+	{
+		HoverSeqs[i] = FCurveSequence();
+		HoverCurves[i] = HoverSeqs[i].AddCurve(0.f, 0.15f, ECurveEaseFunction::QuadInOut);
+	}
 
 	// 모든 SCompoundWidget은 하나의 자식 위젯만 가짐, 그게 ChildSlot
 	ChildSlot
@@ -86,27 +95,60 @@ void SAuroraTypeSelectorWidget::Construct(const FArguments& InArgs)
 
 TSharedRef<SWidget> SAuroraTypeSelectorWidget::CreateAuroraTypeButton(int Index, const FAuroraTypeInfo& InAuroraType)
 {
-	return SNew(SBorder)
-		// SelectedIndex랑 현재 그리고 있는 오로라 인덱스랑 같으면 백그라운드 노란색으로 칠하고 아니면 투명
-		.BorderBackgroundColor_Lambda([this, Index]()
-			{
-				return SelectedIndex == Index ? FLinearColor::Yellow : FLinearColor::Transparent;
-			})
-		[
-			SNew(SButton)
-				// 현재 그리고 있는 오로라 버튼 클릭하면 SelectedIndex 바꿔줌
-				.OnClicked_Lambda([this, Index]()
+	return SNew(SBox)
+		.WidthOverride(256)
+		.HeightOverride(512)
+	[
+		SNew(SBorder)
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			// SelectedIndex랑 현재 그리고 있는 오로라 인덱스랑 같으면 테두리 하얀색으로 칠하고 아니면 투명 (호버시에는 회색)
+			.BorderBackgroundColor_Lambda([this, Index]()
+				{
+					const bool bSelected = (SelectedIndex == Index);
+					const float tHover = HoverCurves.IsValidIndex(Index) ? HoverCurves[Index].GetLerp() : 0.f;
+
+					if (bSelected)
 					{
-						SelectedIndex = Index;
-						return FReply::Handled();
-					})
-				[
-					SNew(SVerticalBox)
-						+ SVerticalBox::Slot()
-						.AutoHeight()
+						return FLinearColor(1.f, 1.f, 1.f, 0.7f);
+					}
+
+					return FLinearColor(0.95f, 0.95f, 0.95f, 0.2f * tHover);
+				})
+			/*.Padding_Lambda([this, Index]()
+				{
+					const bool bSelected = (SelectedIndex == Index);
+					const float tHover = HoverCurves.IsValidIndex(Index) ? HoverCurves[Index].GetLerp() : 0.f;
+
+					return (bSelected || tHover > 0.f) ? FMargin(1.f) : FMargin(0.f);
+				})*/
+			[
+				SNew(SButton)
+					.ContentPadding(0)
+					.ButtonStyle(FAppStyle::Get(), "NoBorder")
+					.OnHovered_Lambda([this, Index]() { HandleTypeHovered(Index); })
+					.OnUnhovered_Lambda([this, Index]() { HandleTypeUnhovered(Index); })
+					// 현재 그리고 있는 오로라 버튼 클릭하면 SelectedIndex 바꿔줌
+					.OnClicked_Lambda([this, Index]()
+						{
+							SelectedIndex = Index;
+							HandleTypeHovered(Index);
+							return FReply::Handled();
+						})
+					[
+						SNew(SOverlay)
+						.Clipping(EWidgetClipping::ClipToBoundsAlways)
+
+						// Image Layer
+						+ SOverlay::Slot()
 						[
-							// 이미지 크기 강제설정
-							SNew(SBox).WidthOverride(256).HeightOverride(512)
+							SNew(SBox)
+								.RenderTransformPivot(FVector2D(0.5f, 0.5f))
+								.RenderTransform(TAttribute<TOptional<FSlateRenderTransform>>::CreateLambda([this, Index]()
+									{
+										const float tHover = HoverCurves.IsValidIndex(Index) ? HoverCurves[Index].GetLerp() : 0.f;
+										const float Scale = FMath::Lerp(1.0f, 1.04f, tHover);
+										return FSlateRenderTransform(FScale2D(Scale, Scale));
+									}))
 								[
 									SNew(SScaleBox)
 										.Stretch(EStretch::ScaleToFill)
@@ -116,19 +158,74 @@ TSharedRef<SWidget> SAuroraTypeSelectorWidget::CreateAuroraTypeButton(int Index,
 										]
 								]
 						]
-					+ SVerticalBox::Slot()
-						.FillHeight(1.0f)
+
+						// Description Layer
+						+ SOverlay::Slot()
 						[
-							SNew(SHorizontalBox)
-								+SHorizontalBox::Slot().HAlign(HAlign_Center)
+							SNew(SBorder)
+								.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+								.Visibility(EVisibility::HitTestInvisible)
+
+								// Fade the panel by scaling the background alpha
+								.BorderBackgroundColor_Lambda([this, Index]()
+									{
+										const bool bSelected = (SelectedIndex == Index);
+										const float tHover = HoverCurves.IsValidIndex(Index) ? HoverCurves[Index].GetLerp() : 0.f;
+										const float t = bSelected ? 1.f : tHover;	// Stay visible when selected
+
+										return FLinearColor(0.f, 0.f, 0.f, 0.4f * t);	// Semi-transparent black overlay
+									})
+								.Padding(FMargin(14.f))
 								[
-								SNew(STextBlock)
-									.Text(FText::FromString(InAuroraType.Name))
-									.Font(FAppStyle::GetFontStyle("NormalFont"))
+									SNew(STextBlock)
+										.Text(FText::FromString(InAuroraType.Description))
+										.AutoWrapText(true)
+										.LineHeightPercentage(1.5f)
+										.Font(FCoreStyle::GetDefaultFontStyle("Italic", 9))
+
+										// Fade the text along with the background
+										.ColorAndOpacity_Lambda([this, Index]()
+											{
+												const bool bSelected = (SelectedIndex == Index);
+												const float tHover = HoverCurves.IsValidIndex(Index) ? HoverCurves[Index].GetLerp() : 0.f;
+												const float t = bSelected ? 1.f : tHover;
+
+												return FLinearColor(1.f, 1.f, 1.f, t);
+											})
 								]
 						]
-				]
-		];
+
+						// Type Name Layer
+						+ SOverlay::Slot()
+							.HAlign(HAlign_Fill)
+							.VAlign(VAlign_Bottom)
+							.Padding(FMargin(0.f, 0.f, 0.f, 0.f))
+							[
+								SNew(SOverlay)
+
+								+ SOverlay::Slot()
+								[
+									SNew(SBorder)
+										.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+										.BorderBackgroundColor(FLinearColor(0.f, 0.f, 0.f, 0.7f))
+										.Padding(FMargin(0.f, 20.f))
+								]
+
+								+ SOverlay::Slot()
+								.HAlign(HAlign_Center)
+								.VAlign(VAlign_Center)
+								[
+									SNew(STextBlock)
+										.Text(FText::FromString(InAuroraType.Name))
+										.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+										.ColorAndOpacity(FLinearColor(1, 1, 1, 0.9f))
+										.ShadowOffset(FVector2D(1.f, 1.f))
+										.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 1.0f))
+								]
+							]
+					]
+			]
+	];
 }
 
 void SAuroraTypeSelectorWidget::OnTextChanged(const FText& InText)
@@ -157,7 +254,7 @@ FReply SAuroraTypeSelectorWidget::OnAuroraConfirmClicked()
 	}
 
 	FString PresetPath = PluginPath + TEXT("/AuroraPresets");
-	UAuroraPresetBase* TargetAsset = Cast<UAuroraPresetBase>(StaticLoadObject(UAuroraPresetBase::StaticClass(), nullptr, *(PresetPath + TEXT("/") + NewPresetName)));
+	UAuroraPresetBase* TargetAsset = Cast<UAuroraPresetBase>(StaticLoadObject(UAuroraPresetBase::StaticClass(), nullptr, *(PresetPath + TEXT("/") + NewPresetName), nullptr, LOAD_NoWarn | LOAD_Quiet));
 	if (TargetAsset)
 	{
 		ValidationResult.bIsValid = false;
@@ -200,16 +297,16 @@ void SAuroraTypeSelectorWidget::InitAuroraTypes()
 	FAuroraTypeInfo SplineType;
 	FAuroraTypeInfo FlowType;
 
-	NoiseType.Name = TEXT("Noise Type");
-	NoiseType.Description = TEXT("Noise Type Aurora Description");
+	NoiseType.Name = TEXT("NOISE AURORA");
+	NoiseType.Description = TEXT("Creates a classic curtain aurora with soft, layered bands and lively motion. \nGreat for general-purpose shots, from gentle drifts to more intense activity.");
 	NoiseType.PresetClass = UNoiseAuroraPreset::StaticClass();
 
-	SplineType.Name = TEXT("Spline Type");
-	SplineType.Description = TEXT("Spline Type Aurora Description");
+	SplineType.Name = TEXT("SPLINE AURORA");
+	SplineType.Description = TEXT("Creates a stylized ribbon-like aurora guided by splines. \nIdeal for long sweeping arcs, sharp vertical streaks, and distinctive shapes.");
 	SplineType.PresetClass = USplineAuroraPreset::StaticClass();
 
-	FlowType.Name = TEXT("Flow Type");
-	FlowType.Description = TEXT("Flow Type Aurora Description");
+	FlowType.Name = TEXT("FLOW AURORA");
+	FlowType.Description = TEXT("Creates a dynamic aurora controlled by points and shaped by forces. \nSuited for storm-like scenes, featuring vortex swirls and turbulence.");
 	FlowType.PresetClass = UPotentialFlowAuroraPreset::StaticClass();
 
 	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("VolumetricAurora"));
@@ -239,10 +336,27 @@ void SAuroraTypeSelectorWidget::InitAuroraTypes()
 		{
 			FlowType.AuroraBrush.SetResourceObject(FlowTexture);
 			FlowType.AuroraBrush.ImageSize = FVector2D(1024, 900);
+			FlowType.AuroraBrush.Tiling = ESlateBrushTileType::NoTile;		// TMP: 썸네일 이미지 모두 확정되면 추후 이미지 사이즈 방식 결정   
 		}
 		AuroraTypes.Add(FlowType);
 	}
 	
+}
+
+void SAuroraTypeSelectorWidget::HandleTypeHovered(int32 Index)
+{
+	if (HoverSeqs.IsValidIndex(Index))
+	{
+		HoverSeqs[Index].Play(AsShared());
+	}
+}
+
+void SAuroraTypeSelectorWidget::HandleTypeUnhovered(int32 Index)
+{
+	if (HoverSeqs.IsValidIndex(Index))
+	{
+		HoverSeqs[Index].Reverse();
+	}
 }
 
 END_SLATE_FUNCTION_BUILD_OPTIMIZATION
