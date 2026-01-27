@@ -38,7 +38,6 @@ public class VolumetricAuroraEditor : ModuleRules
 				"AssetRegistry",
 				"LevelEditor",			// Editor mode integration
 				"InputCore",			// Input handling
-				"MeshPaintingToolset",	// FBuiltinEditorModes::EM_MeshPaint
 				"UMG",					// UserWidget support for WBP integration
 				"UMGEditor",			// WidgetBlueprint class for loading WBP assets
 				"VolumetricAuroraShaders"

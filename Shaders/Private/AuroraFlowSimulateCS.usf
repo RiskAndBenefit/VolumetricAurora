@@ -14,7 +14,7 @@
  */
 
 #include "/Engine/Public/Platform.ush"
-#include "/VolumetricAuroraShaders/Private/ControlPoint.ush"
+#include "/VolumetricAuroraShaders/Private/AuroraControlPoint.ush"
 
 struct FControlPointInfoGPU
 {
@@ -288,7 +288,7 @@ void GetFlowVelocityAndDensity(
 	// Sum velocities from all control points
 	for (uint i = 0; i < NumControlPoints; i++)
 	{
-		float2 ControlPointVelocity;
+		float2 ControlPointVelocity = float2(0.f, 0.f);
 
 		switch (ControlPointsInfo[i].Type)
 		{

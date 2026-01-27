@@ -1,0 +1,697 @@
+// Copyright (c) 2026 R&B. All rights reserved.
+
+/**
+ * AuroraControlPoint.ush
+ * Flow field control point implementations
+ * Provides various flow primitives: gravity, vortex, spiral, curl, etc.
+ */
+
+#pragma once
+
+#include "/VolumetricAuroraShaders/Private/AuroraNoise.ush"
+
+/**
+ * Compute influence weight based on distance attenuation
+ * Provides smooth falloff from full influence to zero at the boundary
+ *
+ * @param Distance Current distance from the control point center
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, returns 1.0 regardless of distance (infinite influence)
+ * @return Weight value in [0, 1] range
+ */
+float ComputeInfluenceWeight(
+	float Distance,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	if (IsGlobal) return 1.f;
+	
+	float w = 1.f;
+
+	if (AttenuationEnd > AttenuationStart)
+	{
+		// Normalize distance into [0, 1] attenuation interval
+		float t = saturate(
+			(AttenuationEnd - Distance) /
+			max(AttenuationEnd - AttenuationStart, 1e-4f)
+		);
+
+		// Optional smoothing of the edge
+		w = smoothstep(0.f, 1.f, t);
+
+		// Shape falloff curve (higher exponent = sharper cutoff near edge)
+		w = pow(w, max(AttenuationExponent, 1.f));
+	}
+
+	return w;
+}
+
+
+/**
+ * Compute radial gravity/source velocity field
+ * Formula: v = (m / 2πr) * r̂
+ * Positive strength = source (outward flow)
+ * Negative strength = sink (inward flow)
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param SourcePosition Control point center position
+ * @param RadialStrength Radial force magnitude (positive=divergence, negative=convergence)
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Velocity vector at current position
+ */
+float2 ComputeGravity(
+	float2 CurrentPosition,
+	float2 SourcePosition,
+	float RadialStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	// Vector from source to current position (flow direction for divergence)
+	float2 ToCurrentPosition = CurrentPosition - SourcePosition;
+
+	// Distance calculation with epsilon to prevent division by zero
+	float Distance = length(ToCurrentPosition);
+	float SafeDistance = max(Distance, 0.01f);
+
+	// Normalized radial direction
+	float2 RadialDirection = ToCurrentPosition / SafeDistance;
+
+	// Velocity magnitude: m / (2πr)
+	// Division by circumference preserves total flux
+	// Closer to source = faster velocity
+	float VelocityMagnitude = RadialStrength / (2.0 * PI * SafeDistance);
+
+	// Smooth fade toward the boundary, then sharpen with exponent
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+	
+	// Final velocity vector = direction × magnitude
+	float2 Velocity = RadialDirection * VelocityMagnitude * w;
+
+	return Velocity;
+}
+
+/**
+ * Compute vortex (rotational) velocity field
+ * Formula: v = (Γ / 2πr) * θ̂
+ * Creates circular flow around a center point
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param VortexPosition Control point center position
+ * @param RotationStrength Rotational strength (positive=CCW, negative=CW)
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Tangential velocity vector at current position
+ */
+float2 ComputeVortex(
+	float2 CurrentPosition,
+	float2 VortexPosition,
+	float RotationStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	// Vector from vortex center to current position
+	float2 RadialVector = CurrentPosition - VortexPosition;
+
+	// Distance calculation
+	float Distance = length(RadialVector);
+	float SafeDistance = max(Distance, 0.01f);
+
+	// Tangent direction (perpendicular to radial)
+	// 2D rotation by 90°: (x, y) -> (-y, x) = counter-clockwise
+	float2 TangentDirection = float2(-RadialVector.y, RadialVector.x) / SafeDistance;
+
+	// Velocity magnitude: Γ / 2πr
+	float VelocityMagnitude = RotationStrength / (2.0 * PI * SafeDistance);
+
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+	
+	// Final velocity
+	float2 Velocity = TangentDirection * VelocityMagnitude * w;
+
+	return Velocity;
+}
+
+/**
+ * Compute spiral velocity field (sink + vortex combination)
+ * Linear superposition of inward flow and rotation
+ * Creates spiral patterns converging to center
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param SpiralPosition Control point center position
+ * @param RadialStrength Inward pull strength
+ * @param RadialAttenuationStart Distance at which radial attenuation begins
+ * @param RadialAttenuationEnd Distance at which radial influence reaches zero
+ * @param RadialAttenuationExponent Radial falloff curve exponent
+ * @param RotationStrength Rotational strength
+ * @param RotationAttenuationStart Distance at which rotation attenuation begins
+ * @param RotationAttenuationEnd Distance at which rotation influence reaches zero
+ * @param RotationAttenuationExponent Rotation falloff curve exponent
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Combined velocity vector (radial + tangential)
+ */
+float2 ComputeSpiral(
+	float2 CurrentPosition,
+	float2 SpiralPosition,
+	float RadialStrength,
+	float RadialAttenuationStart,
+	float RadialAttenuationEnd,
+	float RadialAttenuationExponent,
+	float RotationStrength,
+	float RotationAttenuationStart,
+	float RotationAttenuationEnd,
+	float RotationAttenuationExponent,
+	bool IsGlobal
+)
+{
+	// Linear superposition: Sink + Vortex
+	float2 SinkFlow = ComputeGravity(
+		CurrentPosition,
+		SpiralPosition,
+		-RadialStrength,
+		RadialAttenuationStart,
+		RadialAttenuationEnd,
+		RadialAttenuationExponent,
+		IsGlobal
+	);
+	float2 VortexFlow = ComputeVortex(
+		CurrentPosition,
+		SpiralPosition,
+		RotationStrength,
+		RotationAttenuationStart,
+		RotationAttenuationEnd,
+		RotationAttenuationExponent,
+		IsGlobal
+	);
+
+	return SinkFlow + VortexFlow;
+}
+
+/**
+ * Compute dipole velocity field
+ * Combination of source and sink placed infinitesimally close
+ * Creates directional flow around objects (like flow around cylinder)
+ * Formula: v = (μ / 2πr²) * (cosθ r̂ + sinθ θ̂)
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param DipolePosition Dipole center position
+ * @param DipoleDirection Normalized dipole axis direction
+ * @param DipoleStrength Dipole moment magnitude
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Velocity vector with r^(-2) falloff
+ */
+float2 ComputeDipole(
+	float2 CurrentPosition,
+	float2 DipolePosition,
+	float2 DipoleDirection,
+	float DipoleStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	// Vector from dipole to current position
+	float2 Offset = CurrentPosition - DipolePosition;
+
+	// Distance calculation (dipole decays as r^2, faster than source/sink)
+	float DistanceSquared = dot(Offset, Offset);
+	float SafeDistanceSquared = max(DistanceSquared, 0.01f);
+	float SafeDistance = sqrt(SafeDistanceSquared);
+
+	DipoleDirection = normalize(DipoleDirection);
+
+	// cos(θ): angle between dipole axis and position vector
+	// Using dot product: cos θ = (dipoleDir · offset) / |offset|
+	float CosTheta = dot(DipoleDirection, Offset) / SafeDistanceSquared;
+
+	// sin(θ): using 2D cross product z-component
+	// sin θ = (dipoleDir × offset)_z / |offset|
+	float SinTheta = (
+		DipoleDirection.x * Offset.y - DipoleDirection.y * Offset.x
+	) / (SafeDistance + 0.5f);
+
+	// Radial unit vector
+	float2 RadialDirection = Offset / SafeDistance;
+
+	// Tangent unit vector (90° rotation of radial)
+	float2 TangentDirection = float2(-RadialDirection.y, RadialDirection.x);
+
+	// Velocity magnitude: μ / 2πr²
+	float VelocityScale = DipoleStrength / (2.0 * PI * SafeDistanceSquared);
+
+	// Final velocity: radial component + tangential component
+	float2 Velocity = VelocityScale * (
+		CosTheta * RadialDirection + SinTheta * TangentDirection
+	);
+
+	float w = ComputeInfluenceWeight(
+		SafeDistance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+
+	return Velocity * w;
+}
+
+/**
+ * Compute curl noise velocity field
+ * Real-time calculation version (consider using baked texture for performance)
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param Frequency Noise frequency (higher = more detailed patterns)
+ * @param Time Animation time offset
+ * @param Octaves FBM octave count
+ * @param Lacunarity Frequency multiplier per octave
+ * @param Gain Amplitude multiplier per octave
+ * @param Amplitude FBM base amplitude
+ * @param CurlStrength Output scale factor
+ * @return Divergence-free velocity vector
+ */
+// float2 ComputeCurl(
+// 	float2 CurrentPosition,
+// 	float Frequency,
+// 	float Time,
+// 	int Octaves = 3,
+// 	float Lacunarity = 2.0,
+// 	float Gain = 0.5,
+// 	float Amplitude = 1.0,
+// 	float CurlStrength = 0.01
+// )
+// {
+// 	return CurlNoiseFBM(
+// 		CurrentPosition,
+// 		Frequency,
+// 		Time,
+// 		Octaves,
+// 		Lacunarity,
+// 		Gain,
+// 		Amplitude
+// 	) * CurlStrength;
+// }
+
+/**
+ * Compute curl noise velocity field with distance attenuation
+ * Real-time calculation version (consider using baked texture for performance)
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param CurlPosition Control point center position for attenuation calculation
+ * @param Frequency Noise frequency (higher = more detailed patterns)
+ * @param Time Animation time offset
+ * @param Octaves FBM octave count
+ * @param Lacunarity Frequency multiplier per octave
+ * @param Gain Amplitude multiplier per octave
+ * @param Amplitude FBM base amplitude
+ * @param CurlStrength Output scale factor
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Divergence-free velocity vector
+ */
+float2 ComputeCurl(
+	float2 CurrentPosition,
+	float2 CurlPosition,
+	float Frequency,
+	float Time,
+	int Octaves,
+	float Lacunarity,
+	float Gain,
+	float Amplitude,
+	float CurlStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	float2 ToCurrent = CurrentPosition - CurlPosition;
+	float Distance = length(ToCurrent);
+	
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+
+	return CurlNoiseFBM(
+		CurrentPosition,
+		Frequency,
+		Time,
+		Octaves,
+		Lacunarity,
+		Gain,
+		Amplitude
+	) * CurlStrength * w;
+}
+
+/**
+ * Compute particle density emitted from an emitter control point
+ * Calculates emission contribution at a given position with distance attenuation
+ *
+ * @param CurrentPosition UV position to calculate emission at
+ * @param EmitterPosition Emitter control point center position
+ * @param EmissionStrength Emission intensity (particles per unit time)
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @param DeltaTime Time step for emission calculation
+ * @return Emitted particle density at current position
+ */
+float ComputeEmittedParticleDensity(
+	float2 CurrentPosition,
+	float2 EmitterPosition,
+	float EmissionStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal,
+	float DeltaTime
+)
+{
+	float Distance = length(EmitterPosition - CurrentPosition);
+	
+    float EmittedParticleDensity = EmissionStrength;
+
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+	
+	return EmittedParticleDensity * w;
+}
+
+/**
+ * Compute attenuation (absorption) strength at a given position
+ * Calculates how much particle density is absorbed with distance attenuation
+ *
+ * @param CurrentPosition UV position to calculate attenuation at
+ * @param AttenuatorPosition Attenuator control point center position
+ * @param AttenuationStrength Absorption intensity (particles absorbed per unit time)
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @param DeltaTime Time step for attenuation calculation
+ * @return Attenuation value at current position
+ */
+float ComputeAttenuationStrength(
+	float2 CurrentPosition,
+	float2 AttenuatorPosition,
+	float AttenuationStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal,
+	float DeltaTime
+)
+{
+	float Distance = length(AttenuatorPosition - CurrentPosition);
+	
+    float AttenuationValue = AttenuationStrength * DeltaTime;
+
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+
+	return AttenuationValue * w;
+}
+
+/**
+ * Compute domain warping velocity field
+ * Uses iterative domain warping to generate organic, flowing patterns
+ *
+ * @param CurrentPosition UV position to calculate velocity at
+ * @param WarpPosition Control point center position for attenuation calculation
+ * @param Iterations Number of iterative warp passes
+ * @param Displacement Initial warp displacement strength
+ * @param Falloff Strength decay per iteration
+ * @param Contrast Output contrast adjustment
+ * @param AnimAmplitude Animation displacement magnitude
+ * @param Time Animation time
+ * @param XScale X-axis warping noise scale
+ * @param YScale Y-axis warping noise scale
+ * @param NoiseScale Result noise sample scale
+ * @param XOffset X-axis noise sampling offset
+ * @param YOffset Y-axis noise sampling offset
+ * @param NoiseOffset Result noise sampling offset
+ * @param Octaves FBM octave count
+ * @param Lacunarity Frequency multiplier per octave
+ * @param Gain Amplitude multiplier per octave
+ * @param InitialAmplitude Initial FBM amplitude
+ * @param FlowStrength Final flow strength multiplier
+ * @param AttenuationStart Distance at which attenuation begins (full influence inside)
+ * @param AttenuationEnd Distance at which influence reaches zero
+ * @param AttenuationExponent Falloff curve exponent (higher = sharper cutoff near edge)
+ * @param IsGlobal If true, influence is not attenuated by distance
+ * @return Velocity vector based on domain warping
+ */
+float2 ComputeWarp(
+	float2 CurrentPosition,
+	float2 WarpPosition,
+	int Iterations,
+	float Displacement,
+	float Falloff,
+	float Contrast,
+	float AnimAmplitude,
+	float Time,
+	float XScale,
+	float YScale,
+	float NoiseScale,
+	float2 XOffset,
+	float2 YOffset,
+	float2 NoiseOffset,
+	int Octaves,
+	float Lacunarity,
+	float Gain,
+	float InitialAmplitude,
+	float FlowStrength,
+	float AttenuationStart,
+	float AttenuationEnd,
+	float AttenuationExponent,
+	bool IsGlobal
+)
+{
+	float2 ToCurrent = CurrentPosition - WarpPosition;
+	float Distance = length(ToCurrent);
+
+	float w = ComputeInfluenceWeight(
+		Distance,
+		AttenuationStart,
+		AttenuationEnd,
+		AttenuationExponent,
+		IsGlobal
+	);
+
+	// Generate X velocity component using DomainWarping
+	float vx = DomainWarping(
+		Iterations,
+		Displacement,
+		Falloff,
+		Contrast,
+		AnimAmplitude,
+		Time,
+		XScale,
+		YScale,
+		NoiseScale,
+		XOffset,
+		YOffset,
+		NoiseOffset,
+		CurrentPosition,
+		Octaves,
+		Lacunarity,
+		Gain,
+		InitialAmplitude,
+		0.f  // Seed removed - use fixed value
+	);
+
+	// Generate Y velocity component using DomainWarping with offset
+	float vy = DomainWarping(
+		Iterations,
+		Displacement,
+		Falloff,
+		Contrast,
+		AnimAmplitude,
+		Time,
+		XScale,
+		YScale,
+		NoiseScale,
+		XOffset + float2(1000.f, 0.f),
+		YOffset + float2(0.f, 1000.f),
+		NoiseOffset + float2(500.f, 500.f),
+		CurrentPosition,
+		Octaves,
+		Lacunarity,
+		Gain,
+		InitialAmplitude,
+		1000.f  // Seed removed - use fixed offset value
+	);
+
+	// Convert from [0,1] to [-1,1] range
+	float2 Velocity = float2(vx, vy) * 2.0f - 1.0f;
+
+	return Velocity * FlowStrength * w;
+}
+
+// /**
+//  * Sample pre-baked curl noise from texture array
+//  * More efficient than real-time calculation
+//  *
+//  * @param UV Texture coordinates
+//  * @param CurlTextures Texture2DArray containing baked curl vectors
+//  * @param CurlSampler Sampler state for texture
+//  * @param TextureIndex Array slice index
+//  * @param CurlStrength Output scale factor
+//  * @return Curl velocity vector (decoded from RG channels)
+//  */
+// float2 ComputeCurlFromTexture(
+// 	float2 UV,
+// 	Texture2DArray CurlTextures,
+// 	SamplerState CurlSampler,
+// 	uint TextureIndex,
+// 	float CurlStrength
+// )
+// {
+// 	// Sample curl vector from texture (RG channels, [0, 1] range)
+// 	float3 SampleCoord = float3(UV, (float)TextureIndex);
+// 	float2 CurlValue = CurlTextures.SampleLevel(CurlSampler, SampleCoord, 0).rg;
+//
+// 	// Decode: [0, 1] -> [-1, 1]
+// 	CurlValue = CurlValue * 2.0f - 1.0f;
+//
+// 	return CurlValue * CurlStrength;
+// }
+//
+// /**
+//  * Compute line-source gravity field
+//  * Approximates continuous line source using discrete sampling
+//  *
+//  * @param CurrentPosition UV position to calculate velocity at
+//  * @param LineStart Line source start point
+//  * @param LineEnd Line source end point
+//  * @param StrengthPerLength Total strength distributed along line
+//  * @param NumSamples Number of discrete samples along line
+//  * @return Accumulated velocity from all line samples
+//  */
+// float2 ComputeLineGravity(
+// 	float2 CurrentPosition,
+// 	float2 LineStart,
+// 	float2 LineEnd,
+// 	float StrengthPerLength,
+// 	int NumSamples
+// )
+// {
+// 	float2 TotalVelocity = float2(0, 0);
+//
+// 	for (int i = 0; i < NumSamples; i++)
+// 	{
+// 		float T = (float)i / (float)(NumSamples - 1);
+// 		float2 SamplePosition = lerp(LineStart, LineEnd, T);
+// 		TotalVelocity += ComputeGravity(
+// 			CurrentPosition,
+// 			SamplePosition,
+// 			StrengthPerLength / NumSamples
+// 		);
+// 	}
+//
+// 	return TotalVelocity;
+// }
+//
+// /**
+//  * Apply drag force to velocity
+//  * Formula: F = -k * v (velocity-dependent resistance)
+//  * Uses exponential decay to prevent velocity reversal at large timesteps
+//  *
+//  * @param CurrentVelocity Input velocity vector
+//  * @param DragCoefficient Drag strength coefficient
+//  * @param DeltaTime Time step (seconds)
+//  * @return Velocity after applying drag
+//  */
+// float2 ApplyDrag(
+// 	float2 CurrentVelocity,
+// 	float DragCoefficient,
+// 	float DeltaTime
+// )
+// {
+// 	// exp(-k*dt) prevents velocity sign flip at large DeltaTime
+// 	return CurrentVelocity * exp(-DragCoefficient * DeltaTime);
+// }
+//
+// /**
+//  * Compute wave displacement field
+//  * Creates sinusoidal oscillation along an axis
+//  * Useful for aurora curtain wavering effects
+//  *
+//  * @param CurrentPosition UV position to calculate displacement at
+//  * @param WaveDirection Normalized wave propagation direction
+//  * @param WaveAxis Normalized displacement direction (perpendicular to propagation)
+//  * @param WaveLength Spatial wavelength
+//  * @param Amplitude Wave displacement amplitude
+//  * @param Speed Wave propagation speed
+//  * @param Time Current animation time
+//  * @return Displacement vector perpendicular to wave direction
+//  */
+// float2 ComputeWave(
+// 	float2 CurrentPosition,
+// 	float2 WaveDirection,
+// 	float2 WaveAxis,
+// 	float WaveLength,
+// 	float Amplitude,
+// 	float Speed,
+// 	float Time
+// )
+// {
+// 	// Distance along wave propagation direction
+// 	float DistanceAlongWave = dot(CurrentPosition, WaveDirection);
+//
+// 	// Sinusoidal wave calculation
+// 	float Phase = (DistanceAlongWave / WaveLength) * 2.0 * PI - Time * Speed;
+// 	float WaveValue = sin(Phase);
+//
+// 	// Displacement perpendicular to wave direction
+// 	float2 Displacement = WaveAxis * WaveValue * Amplitude;
+//
+// 	return Displacement;
+// }

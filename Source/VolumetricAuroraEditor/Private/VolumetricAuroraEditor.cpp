@@ -2,11 +2,11 @@
 
 #include "VolumetricAuroraEditor.h"
 #include "PropertyEditorModule.h"
-#include "VolumetricAuroraDetailsCustomization.h"
-#include "SDFBakerCustomization.h"
-#include "VolumetricAurora.h"
-#include "SplineSDFTextureBakerComponent.h"
-#include "VolumetricAuroraStyle.h"
+#include "Customizations/VolumetricAuroraDetailsCustomization.h"
+#include "Customizations/SDFBakerCustomization.h"
+#include "Actors/VolumetricAurora.h"
+#include "Components/SplineSDFTextureBakerComponent.h"
+#include "Style/VolumetricAuroraStyle.h"
 
 #define LOCTEXT_NAMESPACE "FVolumetricAuroraEditorModule"
 
