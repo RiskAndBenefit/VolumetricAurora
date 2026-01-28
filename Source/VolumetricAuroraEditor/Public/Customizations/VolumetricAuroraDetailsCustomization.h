@@ -89,13 +89,6 @@ private:
 	 */
 	FReply OnEditElementsMapClicked();
 
-	/**
-	 * @brief Handle "Bake to Texture" button click
-	 *
-	 * Converts render target to permanent Texture2D asset
-	 */
-	FReply OnBakeToTextureClicked();
-
 	FReply OnNewAuroraPresetButtonClicked();
 
 	FReply OnSaveAuroraPresetButtonClicked();

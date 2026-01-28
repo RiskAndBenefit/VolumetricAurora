@@ -1,4 +1,4 @@
-// Copyright (c) 2026 R&B. All rights reserved.
+﻿// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "Widgets/AuroraElementsPainterWidget.h"
 #include "Widgets/AuroraPreviewViewport.h"
@@ -8,6 +8,7 @@
 #include "Components/Image.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "UObject/SavePackage.h"
+#include "Widgets/SaveFlowElementMapAsWidget.h"
 
 void UAuroraElementsPainterWidget::SetPreviewRenderTarget(UTextureRenderTarget2D* RenderTarget)
 {
@@ -45,167 +46,171 @@ void UAuroraElementsPainterWidget::UpdatePreview()
 	TargetAurora->UpdatePreviewAurora();
 }
 
-void UAuroraElementsPainterWidget::BakeToTexture()
+void UAuroraElementsPainterWidget::Save()
 {
-	// ========================================================================
-	// Step 1: Validate prerequisites
-	// ========================================================================
-
+	// Validate prerequisites
 	if (!TargetAurora)
 	{
-		UE_LOG(LogTemp, Error, TEXT("BakeToTexture: TargetAurora is null"));
+		UE_LOG(LogTemp, Error, TEXT("Save: TargetAurora is null"));
 		return;
 	}
 
 	if (!CurrentRenderTarget)
 	{
-		UE_LOG(LogTemp, Error, TEXT("BakeToTexture: CurrentRenderTarget is null"));
+		UE_LOG(LogTemp, Error, TEXT("Save: CurrentRenderTarget is null"))
+		return;
+	}
+
+	UPotentialFlowAuroraPreset* FlowPreset =
+		Cast<UPotentialFlowAuroraPreset>(TargetAurora->TargetAurora);
+	if (!FlowPreset)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Save: Aurora preset is null or is not flow type"));
+		return;
+	}
+
+	// If no existing map, Save() cannot overwrite -> create a new one.
+	if (!FlowPreset->AuroraElementsMap)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Save: AuroraElementsMap is null. Falling back to SaveAs().")
+		);
+		SaveAs();
 		return;
 	}
 
 	UTextureRenderTarget2D* RT = CurrentRenderTarget;
-	
-	// ========================================================================
-	// Step 2: Read pixels from RenderTarget (GPU -> CPU)
-	// ========================================================================
 
+	// Read pixels from RenderTarget (GPU -> CPU)
 	TArray<FColor> SurfaceData;
 
 	FTextureRenderTargetResource* RTResource = RT->GameThread_GetRenderTargetResource();
 	if (!RTResource)
 	{
-		UE_LOG(LogTemp, Error, TEXT("BakeToTexture: Failed to get RenderTarget resource"));
+		UE_LOG(LogTemp, Error, TEXT("Save: Failed to get RenderTarget resource"));
 		return;
 	}
 
-	// ReadPixels: Blocking operation, waits for GPU to finish rendering
+	// ReadPixels is a blocking call (flushes GPU work for readback).
 	if (!RTResource->ReadPixels(SurfaceData))
 	{
-		UE_LOG(LogTemp, Error, TEXT("BakeToTexture: Failed to read pixels from RenderTarget"));
+		UE_LOG(LogTemp, Error, TEXT("Save: Failed to read pixels from RenderTarget"));
 		return;
 	}
 
-	// ========================================================================
-	// Step 3: Generate asset name with timestamp
-	// ========================================================================
+	// Load existing Texture2D asset correctly
+	// AuroraElementsMap may be UTexture or UTexture2D.
+	UTexture2D* ExistingTexture = Cast<UTexture2D>(FlowPreset->AuroraElementsMap);
+	if (!ExistingTexture)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Save: AuroraElementsMap is not a Texture2D (cannot overwrite source pixels)."));
+		return;
+	}
 
-	FString AssetName = FString::Printf(
-		TEXT("T_AuroraElements_%s_%s"),
-		*TargetAurora->GetName(),
-		*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"))
-	);
+	// Ensure size matches (overwriting mismatched source is unsafe)
+	if (ExistingTexture->GetSizeX() != RT->SizeX || ExistingTexture->GetSizeY() != RT->SizeY)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("Save: Size mismatch. Texture=%dx%d, RT=%dx%d. Recreating asset via SaveAs()."),
+			ExistingTexture->GetSizeX(), ExistingTexture->GetSizeY(), RT->SizeX, RT->SizeY);
 
-	// Asset path: /VolumetricAurora/ refers to plugin mount point
-	FString PackagePath = TEXT("/VolumetricAurora/Textures/AuroraFlowElementMap/");
-	FString PackageName = PackagePath + AssetName;
+		SaveAs();
+		return;
+	}
 
-	// ========================================================================
-	// Step 4: Create Texture2D asset
-	// ========================================================================
+	// Get owning package (this is the correct package to mark dirty & save).
+	UPackage* Package = ExistingTexture->GetOutermost();
+	if (!Package)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Save: Failed to get outermost package from existing texture."));
+		return;
+	}
 
-	UPackage* Package = CreatePackage(*PackageName);
+	// Make sure package is fully loaded before editing
 	Package->FullyLoad();
 
-	// RF_Public: Accessible from other packages
-	// RF_Standalone: Won't be GC'd automatically
-	// RF_MarkAsRootSet: Prevents garbage collection
-	UTexture2D* NewTexture = NewObject<UTexture2D>(
-		Package,
-		*AssetName,
-		RF_Public | RF_Standalone | RF_MarkAsRootSet
-	);
+	// Overwrite pixel data (CPU memory -> Texture Source)
+	// Update existing asset content (supports undo/redo).
+	ExistingTexture->Modify();
+	Package->Modify();
 
-	// ========================================================================
-	// Step 5: Initialize texture source data
-	// ========================================================================
+	// Copy raw BGRA8 pixels into mip0.
+	uint8* MipData = ExistingTexture->Source.LockMip(0);
+	if (!MipData)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Save: Failed to lock mip0 for writing."));
+		return;
+	}
 
-	NewTexture->Source.Init(
-		RT->SizeX,				// Width
-		RT->SizeY,				// Height
-		1,						// NumSlices (1 for 2D texture)
-		1,						// NumMips (generate mips later)
-		TSF_BGRA8				// Source format (matches FColor)
-	);
+	const int32 ExpectedBytes = RT->SizeX * RT->SizeY * sizeof(FColor);
+	const int32 SourceBytes = SurfaceData.Num() * sizeof(FColor);
 
-	// ========================================================================
-	// Step 6: Copy pixel data to Texture2D
-	// ========================================================================
+	if (SourceBytes < ExpectedBytes)
+	{
+		ExistingTexture->Source.UnlockMip(0);
+		UE_LOG(LogTemp, Error, TEXT("Save: SurfaceData size is smaller than expected."));
+		return;
+	}
 
-	// Lock texture for writing
-	uint8* MipData = NewTexture->Source.LockMip(0);
+	FMemory::Memcpy(MipData, SurfaceData.GetData(), ExpectedBytes);
+	ExistingTexture->Source.UnlockMip(0);
 
-	// Memcpy: Fast memory copy
-	FMemory::Memcpy(
-		MipData,
-		SurfaceData.GetData(),
-		SurfaceData.Num() * sizeof(FColor)
-	);
+	// Push updated source to GPU.
+	ExistingTexture->UpdateResource();
 
-	// Unlock texture
-	NewTexture->Source.UnlockMip(0);
-
-	// ========================================================================
-	// Step 7: Configure texture settings
-    // ========================================================================
-
-	NewTexture->SRGB = false;									// Linear color space (data texture)
-	NewTexture->CompressionSettings = TC_VectorDisplacementmap;	// RGB only, no alpha
-	NewTexture->MipGenSettings = TMGS_NoMipmaps;				// No mipmaps needed
-	NewTexture->AddressX = TA_Clamp;							// Clamp at edges
-	NewTexture->AddressY = TA_Clamp;
-	NewTexture->Filter = TF_Bilinear;							// Bilinear filtering
-	NewTexture->AlphaCoverageThresholds = FVector4(0, 0, 0, 0);
-
-	// Build texture (compile for GPU)
-	NewTexture->UpdateResource();
-
-	// ========================================================================
-	// Step 8: Save asset to disk
-	// ========================================================================
-
+	// Save package to disk
+	// Mark dirty so the editor knows the asset changed.
 	Package->MarkPackageDirty();
-	FAssetRegistryModule::AssetCreated(NewTexture);
 
-	// Convert package name to file path
-	FString PackageFileName = FPackageName::LongPackageNameToFilename(
+	const FString PackageName = Package->GetName(); // Long package name: /Game/...
+	const FString PackageFileName = FPackageName::LongPackageNameToFilename(
 		PackageName,
 		FPackageName::GetAssetPackageExtension()
 	);
 
-	// Configure save parameters
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 	SaveArgs.Error = GError;
-	SaveArgs.bForceByteSwapping = false;
 	SaveArgs.bWarnOfLongFilename = true;
 
-	// Save package
 	FSavePackageResultStruct SaveResult = UPackage::Save(
 		Package,
-		NewTexture,
+		ExistingTexture,
 		*PackageFileName,
 		SaveArgs
 	);
 
-	bool bSaved = (SaveResult.Result == ESavePackageResult::Success);
-
-	// ========================================================================
-	// Step 9: Auto-assign to TargetAurora
-	// ========================================================================
-
-	if (bSaved)
+	if (SaveResult.Result == ESavePackageResult::Success)
 	{
-		UE_LOG(LogTemp, Log, TEXT("BakeToTexture: Texture saved successfully: %s"), *PackageName);
-
-		if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora->TargetAurora))
-		{
-			FlowPreset->Modify();		// Mark for undo system
-			FlowPreset->AuroraElementsMap = NewTexture;
-			UE_LOG(LogTemp, Log, TEXT("BakeToTexture: Assigned to AuroraElementsMap"));
-		}
+		UE_LOG(LogTemp, Log, TEXT("Save: Overwrote existing texture successfully: %s"), *PackageName);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("BakeToTexture: Failed to save texture"));
+		UE_LOG(LogTemp, Error, TEXT("Save: Failed to save package: %s"), *PackageName);
 	}
+}
+
+
+void UAuroraElementsPainterWidget::SaveAs()
+{
+	if (!TargetAurora)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SaveAs: TargetAurora is null"));
+		return;
+	}
+	TSharedRef<SWindow> Window = SNew(SWindow)
+		.Title(FText::FromString("Save Element Map as"))
+		.SizingRule(ESizingRule::Autosized)
+		.SupportsMaximize(false)
+		.SupportsMinimize(false);
+
+	Window->SetContent(SNew(SSaveFlowElementMapAsWidget)
+		.ParentWindow(Window)
+		.TargetAurora(TargetAurora)
+		.CurrentRenderTarget(CurrentRenderTarget)
+	);
+
+	FSlateApplication::Get().AddWindow(Window);
 }

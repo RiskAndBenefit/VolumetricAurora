@@ -2,6 +2,7 @@
 
 #include "Actors/VolumetricAurora.h"
 
+#include "Engine/Engine.h"
 #include "VolumetricAuroraModule.h"
 #include "TextureResource.h"
 #include "SystemTextures.h" 
@@ -153,6 +154,9 @@ void AVolumetricAurora::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 	}
 
 	UpdateMaterialTarget();
+
+	// Keep debug draw visible while editing properties via sliders
+	RenderControlPointsDebug();
 }
 
 void AVolumetricAurora::PostActorCreated()
@@ -992,7 +996,7 @@ void AVolumetricAurora::BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset
 void AVolumetricAurora::RenderControlPointsDebug() const
 {
 	// Control Points Debug Display using DrawDebugSphere
-	if (!GetWorld() || !TargetAurora)
+	if (!GetWorld() || GetWorld()->WorldType != EWorldType::Editor || !TargetAurora)
 	{
 		return;
 	}
@@ -1138,7 +1142,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 				8,
 				DisplayColor,
 				false,
-				0.0f,
+				0.f,
 				0,
 				1000.0f
 			);
@@ -1155,7 +1159,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 				128,
 				DisplayColor,
 				false,
-				-1.f,
+				0.f,
 				0,
 				1000.0f,
 				FVector(1, 0, 0),
@@ -1170,7 +1174,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 				128,
 				DisplayColor,
 				false,
-				-1.f,
+				0.f,
 				0,
 				1000.0f,
 				FVector(1, 0, 0),
@@ -1187,7 +1191,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 					128,
 					FColor::Silver,
 					false,
-					-1.f,
+					0.f,
 					0,
 					1000.0f,
 					FVector(1, 0, 0),
@@ -1202,7 +1206,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 					128,
 					FColor::Silver,
 					false,
-					-1.f,
+					0.f,
 					0,
 					1000.0f,
 					FVector(1, 0, 0),
@@ -1220,7 +1224,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 				128,
 				FColor::Turquoise,
 				false,
-				-1.f,
+				0.f,
 				0,
 				1000.0f,
 				FVector(1, 0, 0),
@@ -1235,7 +1239,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 					128,
 					FColor::Turquoise,
 					false,
-					-1.f,
+					0.f,
 					0,
 					1000.0f,
 					FVector(1, 0, 0),
@@ -1805,8 +1809,284 @@ void AVolumetricAurora::ApplyPresetToTarget(UAuroraPresetBase* InPreset)
 	bAuroraElementsMapDirty = true;
 }
 
+
+
 FString AVolumetricAurora::GetPluginPath()
 {
 	return PluginPath;
 }
 
+// ============================================================================
+// Blueprint Control Functions Implementation
+// ============================================================================
+
+bool AVolumetricAurora::SetAuroraPreset(UAuroraPresetBase* NewPreset)
+{
+	if (!NewPreset)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetAuroraPreset: NewPreset is nullptr"));
+		return false;
+	}
+
+	// Apply preset to target
+	ApplyPresetToTarget(NewPreset);
+
+	UE_LOG(LogTemp, Log, TEXT("Aurora preset changed to: %s"), *NewPreset->GetName());
+	return true;
+}
+
+UAuroraPresetBase* AVolumetricAurora::GetAuroraPreset()
+{
+	return TargetAurora;
+}
+
+void AVolumetricAurora::SetAuroraEnabled(bool bEnabled)
+{
+	if (VolumeBox)
+	{
+		VolumeBox->SetVisibility(bEnabled);
+	}
+}
+
+void AVolumetricAurora::ToggleAuroraEnabled()
+{
+	if (VolumeBox)
+	{
+		VolumeBox->ToggleVisibility();
+	}
+}
+
+bool AVolumetricAurora::GetAuroraEnabled() const
+{
+	return VolumeBox ? VolumeBox->IsVisible() : false;
+}
+
+UAuroraPresetBase* AVolumetricAurora::GetSourcePreset() const
+{
+	return SourcePreset;
+}
+
+bool AVolumetricAurora::IsUsingPreset(UAuroraPresetBase* PresetToCheck) const
+{
+	if (!PresetToCheck)
+	{
+		return false;
+	}
+
+	// Compare with source preset (not duplicate TargetAurora)
+	return SourcePreset == PresetToCheck;
+}
+
+void AVolumetricAurora::DebugAuroraState()
+{
+	UE_LOG(LogTemp, Warning, TEXT("===== Aurora Debug State ====="));
+	UE_LOG(LogTemp, Warning, TEXT("VolumeBox: %s"), VolumeBox ? TEXT("Valid") : TEXT("NULL"));
+
+	// VolumeBox detailed info
+	if (VolumeBox)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("  - Visible: %s"), VolumeBox->IsVisible() ? TEXT("TRUE") : TEXT("FALSE"));
+		UE_LOG(LogTemp, Warning, TEXT("  - Hidden in Game: %s"), VolumeBox->bHiddenInGame ? TEXT("TRUE") : TEXT("FALSE"));
+		UE_LOG(LogTemp, Warning, TEXT("  - Location: %s"), *VolumeBox->GetComponentLocation().ToString());
+		UE_LOG(LogTemp, Warning, TEXT("  - Scale: %s"), *VolumeBox->GetComponentScale().ToString());
+		UE_LOG(LogTemp, Warning, TEXT("  - Material Count: %d"), VolumeBox->GetNumMaterials());
+
+		for (int32 i = 0; i < VolumeBox->GetNumMaterials(); i++)
+		{
+			UMaterialInterface* Mat = VolumeBox->GetMaterial(i);
+			UE_LOG(LogTemp, Warning, TEXT("  - Material[%d]: %s"), i, Mat ? *Mat->GetName() : TEXT("NULL"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("Material Dynamic: %s"), AuroraMaterialDynamic ? TEXT("Valid") : TEXT("NULL"));
+
+	// Material parameters check
+	if (AuroraMaterialDynamic && TargetAurora)
+	{
+		float TestIntensity = 0.0f;
+		if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: %f"), TestIntensity);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: NOT FOUND!"));
+		}
+
+		UTexture* NoiseTexture = nullptr;
+		if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("NoiseTexture"), NoiseTexture))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture: %s"), NoiseTexture ? *NoiseTexture->GetName() : TEXT("NULL"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture Parameter: NOT FOUND!"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("TargetAurora: %s"), TargetAurora ? *TargetAurora->GetName() : TEXT("NULL"));
+
+	// Preset detailed info
+	if (TargetAurora)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("  - Intensity: %f"), TargetAurora->Intensity);
+		UE_LOG(LogTemp, Warning, TEXT("  - Altitude: %f km"), TargetAurora->Altitude);
+		UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture: %s"), TargetAurora->NoiseTexture ? *TargetAurora->NoiseTexture->GetName() : TEXT("NULL"));
+
+		if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Noise Aurora"));
+			UE_LOG(LogTemp, Warning, TEXT("  - Activity: %f"), NoisePreset->Activity);
+		}
+		else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Potential Flow Aurora"));
+			UE_LOG(LogTemp, Warning, TEXT("  - Control Points: %d"), FlowPreset->ControlPoints.Num());
+		}
+		else if (USplineAuroraPreset* SplinePreset = Cast<USplineAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Spline Aurora"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("SourcePreset: %s"), SourcePreset ? *SourcePreset->GetName() : TEXT("NULL"));
+	UE_LOG(LogTemp, Warning, TEXT("Is Playing: %s"), bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"));
+	UE_LOG(LogTemp, Warning, TEXT("Time Scale: %f"), AuroraTimeScale);
+	UE_LOG(LogTemp, Warning, TEXT("Accumulated Time: %f"), AuroraAccumulatedTime);
+	UE_LOG(LogTemp, Warning, TEXT("Actor Hidden: %s"), IsHidden() ? TEXT("TRUE") : TEXT("FALSE"));
+	UE_LOG(LogTemp, Warning, TEXT("Actor Location: %s"), *GetActorLocation().ToString());
+	UE_LOG(LogTemp, Warning, TEXT("=============================="));
+}
+
+void AVolumetricAurora::DisplayAuroraDebugInfo(bool bShowDetailed)
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// Screen position offset
+	int32 LineOffset = 0;
+	const float DisplayTime = 0.0f; // 0 = update every frame
+	const FColor TitleColor = FColor::Cyan;
+	const FColor ValueColor = FColor::White;
+	const FColor WarningColor = FColor::Yellow;
+	const FColor ErrorColor = FColor::Red;
+
+	// Title
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
+		TEXT("===== Aurora Debug Info ====="));
+
+	// Basic state
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+		FString::Printf(TEXT("Playing: %s | TimeScale: %.2f | Time: %.2f"),
+			bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"),
+			AuroraTimeScale,
+			AuroraAccumulatedTime));
+
+	// Visibility
+	FColor VisibilityColor = (VolumeBox && VolumeBox->IsVisible()) ? ValueColor : ErrorColor;
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, VisibilityColor,
+		FString::Printf(TEXT("Visible: %s | Hidden: %s"),
+			(VolumeBox && VolumeBox->IsVisible()) ? TEXT("TRUE") : TEXT("FALSE"),
+			IsHidden() ? TEXT("TRUE") : TEXT("FALSE")));
+
+	// Preset info
+	if (TargetAurora)
+	{
+		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+			FString::Printf(TEXT("Preset: %s | Intensity: %.1f"),
+				*TargetAurora->GetName(),
+				TargetAurora->Intensity));
+	}
+	else
+	{
+		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
+			TEXT("Preset: NULL"));
+	}
+
+	// Detailed info
+	if (bShowDetailed)
+	{
+		// Material info
+		if (VolumeBox)
+		{
+			UMaterialInterface* Mat = VolumeBox->GetMaterial(0);
+			FColor MatColor = Mat ? ValueColor : ErrorColor;
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, MatColor,
+				FString::Printf(TEXT("Material: %s"),
+					Mat ? *Mat->GetName() : TEXT("NULL")));
+		}
+
+		if (AuroraMaterialDynamic)
+		{
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("MID: %s"), *AuroraMaterialDynamic->GetName()));
+
+			// Check material parameters
+			float TestIntensity = 0.0f;
+			if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("  Intensity Param: %.1f"), TestIntensity));
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
+					TEXT("  Intensity Param: NOT FOUND"));
+			}
+
+			UTexture* NoiseTexture = nullptr;
+			if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("NoiseTexture"), NoiseTexture))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("  NoiseTexture: %s"),
+						NoiseTexture ? *NoiseTexture->GetName() : TEXT("NULL")));
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
+					TEXT("  NoiseTexture: NOT FOUND"));
+			}
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
+				TEXT("MID: NULL"));
+		}
+
+		// Preset type
+		if (TargetAurora)
+		{
+			if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("Type: Noise | Activity: %.3f"), NoisePreset->Activity));
+			}
+			else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("Type: Flow | ControlPoints: %d"), FlowPreset->ControlPoints.Num()));
+			}
+			else if (Cast<USplineAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					TEXT("Type: Spline"));
+			}
+		}
+
+		// Location/Scale
+		if (VolumeBox)
+		{
+			FVector Loc = VolumeBox->GetComponentLocation();
+			FVector Scale = VolumeBox->GetComponentScale();
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("Loc: %.0f, %.0f, %.0f"), Loc.X, Loc.Y, Loc.Z));
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("Scale: %.0f, %.0f, %.0f"), Scale.X, Scale.Y, Scale.Z));
+		}
+	}
+
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
+		TEXT("============================"));
+}

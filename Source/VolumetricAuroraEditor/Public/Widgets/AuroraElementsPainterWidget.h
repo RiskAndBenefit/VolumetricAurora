@@ -1,4 +1,4 @@
-// Copyright (c) 2026 R&B. All rights reserved.
+﻿// Copyright (c) 2026 R&B. All rights reserved.
 
 #pragma once
 
@@ -71,7 +71,27 @@ public:
 	void UpdatePreview();
 
 	/**
-	 * @brief Bake ElementsRenderTarget to permanent Texture2D asset
+	 * @brief Save current ElementsRenderTarget into the existing AuroraElementsMap asset.
+	 *
+	 * This function updates the already assigned Texture2D (AuroraElementsMap) by overwriting its pixel data
+	 * with the current painter render target.
+	 *
+	 * Workflow:
+	 * 1. Validate TargetAurora, CurrentRenderTarget, and flow preset
+	 * 2. If AuroraElementsMap is null, fallback to SaveAs()
+	 * 3. Read pixels from CurrentRenderTarget (GPU -> CPU)
+	 * 4. Load the existing Texture2D asset and overwrite its Source mip0
+	 * 5. Mark package dirty and save package to disk
+	 *
+	 * Notes:
+	 * - This is an editor-only operation and does not create a new asset.
+	 * - The existing asset must be a UTexture2D with editable source data.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora Painter")
+	void Save();
+	
+	/**
+	 * @brief Bake ElementsRenderTarget to new Texture2D asset
 	 *
 	 * Workflow:
 	 * 1. Read pixels from ElementsRenderTarget (GPU -> CPU)
@@ -80,11 +100,11 @@ public:
 	 * 4. Save asset to disk
 	 * 5. Auto-assign to TargetAurora's AuroraElementsMap
 	 *
-	 * Asset location: /VolumetricAurora/Textures/AuroraFlowElementMaps/
+	 * Asset location: /VolumetricAurora/Textures/FlowElementMaps/
 	 * Naming: T_AuroraElements_{ActorName}_{TimeStamp}.uasset
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Aurora Painter")
-	void BakeToTexture();
+	void SaveAs();
 	
 	/**
 	 * @brief Reference to the VolumetricAurora actor being edited

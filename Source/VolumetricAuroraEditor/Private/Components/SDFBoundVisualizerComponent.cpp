@@ -1,6 +1,7 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
 #include "Components/SDFBoundVisualizerComponent.h"
+#include "Components/SplineSDFTextureBakerComponent.h"
 
 // Sets default values for this component's properties
 USDFBoundVisualizerComponent::USDFBoundVisualizerComponent()
@@ -15,11 +16,6 @@ USDFBoundVisualizerComponent::USDFBoundVisualizerComponent()
 
 	// ...
 }
-
-#include "Components/SplineSDFTextureBakerComponent.h"
-
-
-
 
 // Called when the game starts
 void USDFBoundVisualizerComponent::BeginPlay()

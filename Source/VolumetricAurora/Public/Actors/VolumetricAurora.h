@@ -82,10 +82,10 @@ public:
 	// === Time Control ===
 	float AuroraAccumulatedTime = 0.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|Time")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|Time")
 	bool bAuroraPlaying = true;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|Time", meta = (UIMin = "0.0", UIMax = "10.0", Delta = "0.01"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|Time", meta = (UIMin = "0.0", UIMax = "10.0", Delta = "0.01"))
 	float AuroraTimeScale = 1.0f;
 
 	float FlowSimulationAccumulatedTime = 0.0f;
@@ -97,6 +97,73 @@ public:
 	UFUNCTION()
 	void ResetFlowSimulation();
 #endif
+
+	// ========================================================================
+	// Blueprint Control Functions
+	// ========================================================================
+
+	/**
+	 * @brief Dynamically change aurora preset at runtime
+	 * @param NewPreset Aurora preset to apply
+	 * @return true if successfully applied
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
+	bool SetAuroraPreset(UAuroraPresetBase* NewPreset);
+
+	/**
+	 * @brief Get AuroraPresetBase reference that aurora actor is using
+	 * @return AuroraPresetBase reference that aurora actor is using
+	 */
+	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
+	UAuroraPresetBase* GetAuroraPreset();
+	
+	/**
+	 * @brief Show/hide aurora rendering
+	 * @param bEnabled true to show, false to hide
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
+	void SetAuroraEnabled(bool bEnabled);
+
+	/**
+	 * @brief Get aurora visibility state
+	 */
+	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
+	bool GetAuroraEnabled() const;
+	
+	/**
+	 * @brief Toggle aurora visibility
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
+	void ToggleAuroraEnabled();
+
+	/**
+	 * @brief Get original source preset (before duplication)
+	 * @return Source preset asset that was applied
+	 */
+	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
+	UAuroraPresetBase* GetSourcePreset() const;
+
+	/**
+	 * @brief Check if aurora is using specific preset
+	 * @param PresetToCheck Preset asset to campare
+	 * @return true if current preset matches the source
+	 */
+	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
+	bool IsUsingPreset(UAuroraPresetBase* PresetToCheck) const;
+
+	/**
+	 * @brief Debug: Print aurora state to log
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Debug")
+	void DebugAuroraState();
+
+	/**
+	 * @brief Display aurora debug info on screen (PIE/Game)
+	 * Shows real-time aurora state directly on viewport
+	 * @param bShowDetailed Show detailed material and preset info
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Debug")
+	void DisplayAuroraDebugInfo(bool bShowDetailed = false);
 
 	UPROPERTY(VisibleAnywhere, Category = "HideCategory")
 	TObjectPtr<USceneComponent> SceneRoot;
@@ -343,6 +410,7 @@ private:
 	UPROPERTY()
 	FString PluginPath;
 
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
 	void UpdateMaterialTarget();
 
 #if WITH_EDITORONLY_DATA

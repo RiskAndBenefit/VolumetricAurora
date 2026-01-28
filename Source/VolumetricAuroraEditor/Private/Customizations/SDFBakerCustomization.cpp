@@ -33,62 +33,48 @@ void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilde
 
 	IDetailCategoryBuilder& BakerCategory = DetailBuilder.EditCategory("SDFBaker");
 
-	BakerCategory.AddCustomRow(FText::FromString("Save"))
-		.NameContent()
-		.HAlign(HAlign_Center)
+	BakerCategory.AddCustomRow(FText::FromString("BakeSDFTexture"))
+		.WholeRowContent()
 		[
-			SNew(SBox)
-				.MinDesiredWidth(100.f)
+			SNew(SHorizontalBox)
+				+SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.HAlign(HAlign_Center)
 				[
+					SNew(SButton)
+					.Text(FText::FromString("Bake SDF Texture"))
+					.OnClicked(this, &FSDFBakerCustomization::OnSaveAsButtonClicked)
+					.VAlign(VAlign_Center)
+				]
+		];
+	BakerCategory.AddCustomRow(FText::FromString("Save"))
+		.WholeRowContent()
+		[
+			SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.HAlign(HAlign_Center)
+				[
+
 					SNew(SButton)
 						.Text(FText::FromString("Add Spline Component"))
 						.OnClicked(this, &FSDFBakerCustomization::OnAddSplineComponentButtonClicked)
-						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
 				]
-		]
-	.ValueContent()
-		.HAlign(HAlign_Center)
-		[
-			SNew(SBox)
-				.MinDesiredWidth(100.f)
+			+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.HAlign(HAlign_Center)
 				[
 					SNew(SButton)
-						.Text(FText::FromString("Bake SDF Texture"))
-						.OnClicked(this, &FSDFBakerCustomization::OnSaveAsButtonClicked)
-						.HAlign(HAlign_Center)
+						.Text(FText::FromString("Focus on the visualizer"))
+						.OnClicked_Lambda([this]()
+							{
+								SelectedComponent->FocusOnVisualizer();
+								return FReply::Handled();
+							})
+						.VAlign(VAlign_Center)
 				]
 		];
-	/*TSharedPtr<IPropertyHandle> ExtentProp = DetailBuilder.GetProperty(GET_MEMBER_NAME_CHECKED(UAuroraPresetBase, AuroraAreaExtent));
-	
-	if (ExtentProp.IsValid())
-	{
-		IDetailPropertyRow* PropRow = DetailBuilder.EditDefaultProperty(ExtentProp);
-
-		if (PropRow)
-		{
-			PropRow->CustomWidget()
-				.NameContent()
-				[
-					ExtentProp->CreatePropertyNameWidget()
-				]
-				.ValueContent()
-				[
-					SNew(SAuroraExtentWidget)
-						.Value_Lambda([ExtentProp]()
-							{
-								float Value;
-								ExtentProp->GetValue(Value);
-								return Value;
-							})
-						.OnValueChanged_Lambda([ExtentProp](float Value)
-							{
-								ExtentProp->SetValue(Value,
-									EPropertyValueSetFlags::InteractiveChange);
-							})
-						.Sensitivity(0.01f)
-				];
-		}
-	}*/
 }
 
 FReply FSDFBakerCustomization::OnAddSplineComponentButtonClicked()

@@ -21,11 +21,14 @@ public:
 	UPROPERTY()
 	UStaticMeshComponent* BoundsVisualizer;
 
+	UPROPERTY(EditAnywhere, Category = "SDFBaker")
+	bool bAlwaysShowDebugLine = false;
 
 	// Sets default values for this component's properties
 
 	float MapSize = 50000.0f;
 
+	void FocusOnVisualizer();
 
 	void AddSplineComponent();
 
@@ -34,6 +37,8 @@ public:
 	void SetBoundsVisualizerTransform();
 
 	void DispatchSDFBakeCS(const TArray<FVector4f>& SplinePoints, const TArray<FAuroraSplineInfo>& SplineInfos, const FString& NewTextureName);
+
+	void UpdateVisualizerState();
 
 	void OnSelectionChanged(UObject* Selected);
 

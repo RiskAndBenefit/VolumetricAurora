@@ -30,7 +30,7 @@ class VOLUMETRICAURORAEDITOR_API UAuroraPresetManager : public UEditorSubsystem
 public:
 
 	void SavePreset(UAuroraPresetBase* InPreset, const FString& NewPresetName);
-
+	
 	FString GetPresetVirtualPath() const;
 
 	FString GetPluginName() const;

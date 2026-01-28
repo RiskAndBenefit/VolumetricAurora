@@ -4,6 +4,7 @@
 
 #include "Actors/VolumetricAurora.h"
 #include "Components/SDFBoundVisualizerComponent.h"
+#include "Components/AuroraSplineComponent.h"
 #include "Selection.h"
 #include "FileHelpers.h"
 #include "Components/SplineComponent.h"
@@ -11,6 +12,10 @@
 #include "RenderGraphUtils.h"
 #include "ComputeShaders/AuroraSDFBakeCS.h"
 #include "Engine/TextureRenderTarget2D.h"
+
+#include "EditorViewportClient.h"
+#include "LevelEditor.h"
+#include "SLevelViewport.h"
 
 
 // Sets default values for this component's properties
@@ -25,9 +30,27 @@ USplineSDFTextureBakerComponent::USplineSDFTextureBakerComponent()
 	// ...
 }
 
+void USplineSDFTextureBakerComponent::FocusOnVisualizer()
+{
+	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor");
+	TSharedPtr<IAssetViewport> ActiveViewport = LevelEditorModule.GetFirstActiveViewport();
+	
+	if (ActiveViewport.IsValid())
+	{
+		FEditorViewportClient& ViewportClient = ActiveViewport->GetAssetViewportClient();
 
+		FVector TargetLocation = BoundsVisualizer->GetComponentLocation();
+		FVector CameraLocation = FVector(0.0f, 0.0f, -50000.0f);
 
+		ViewportClient.SetViewLocation(TargetLocation + CameraLocation);
+		
+		ViewportClient.SetViewRotation(FVector(0.0f, 0.0f, 1.0f).Rotation());
 
+		ViewportClient.Invalidate();
+		
+	}
+
+}
 
 void USplineSDFTextureBakerComponent::AddSplineComponent()
 {
@@ -39,7 +62,7 @@ void USplineSDFTextureBakerComponent::AddSplineComponent()
 
 	Owner->Modify();
 
-	USplineComponent* NewSpline = NewObject<USplineComponent>(Owner, USplineComponent::StaticClass(), MakeUniqueObjectName(Owner, USplineComponent::StaticClass()), RF_Transactional);
+	USplineComponent* NewSpline = NewObject<UAuroraSplineComponent>(Owner, UAuroraSplineComponent::StaticClass(), MakeUniqueObjectName(Owner, UAuroraSplineComponent::StaticClass()), RF_Transactional);
 
 	if (NewSpline)
 	{
@@ -317,9 +340,14 @@ void USplineSDFTextureBakerComponent::OnUnregister()
 
 void USplineSDFTextureBakerComponent::OnSelectionChanged(UObject* Selected)
 {
+	UpdateVisualizerState();
+}
+
+void USplineSDFTextureBakerComponent::UpdateVisualizerState()
+{
 	if (BoundsVisualizer)
 	{
-		bool bShouldShow = IsSelected();
+		bool bShouldShow = IsSelected() || bAlwaysShowDebugLine;
 
 		if (!bShouldShow)
 		{
@@ -367,6 +395,8 @@ void USplineSDFTextureBakerComponent::PostEditChangeProperty(FPropertyChangedEve
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
 	SetBoundsVisualizerTransform();
+
+	UpdateVisualizerState();
 }
 
 void USplineSDFTextureBakerComponent::SetBoundsVisualizerTransform()
