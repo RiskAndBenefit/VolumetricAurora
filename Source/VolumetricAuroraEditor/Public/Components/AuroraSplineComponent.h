@@ -8,7 +8,7 @@
 /**
  *
  */
-UCLASS()
+UCLASS(ClassGroup = (Aurora), meta = (BlueprintSpawnableComponent))
 class VOLUMETRICAURORAEDITOR_API UAuroraSplineComponent : public USplineComponent
 {
 	GENERATED_BODY()
