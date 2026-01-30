@@ -345,8 +345,10 @@ public:
 	 * @brief Capture current simulation state to checkpoint texture
 	 * @param CurrentSimulationTime  Current accumulated simulation time
 	 */
+#if WITH_EDITOR
 	void CaptureSimulationCheckpoint(FString TargetAuroraName, float CurrentSimulationTime);
 
+#endif
 	/**
 	 * @brief Check if checkpoint texture exists and can be restored
 	 * @return true if valid checkpoint exists
