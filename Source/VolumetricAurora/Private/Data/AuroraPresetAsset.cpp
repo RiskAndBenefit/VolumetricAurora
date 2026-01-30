@@ -1,6 +1,8 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
 #include "Data/AuroraPresetAsset.h"
+
+#include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "UObject/ConstructorHelpers.h"
@@ -8,6 +10,14 @@
 
 #include "Engine/Texture.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "UObject/SavePackage.h"
+
+#if WITH_EDITOR
+#include "Kismet/KismetRenderingLibrary.h"
+#include "AssetToolsModule.h"
+#include "PackageTools.h"
+#include "Editor.h"
+#endif
 
 #if WITH_EDITOR
 void UAuroraPresetBase::PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent)
@@ -87,11 +97,9 @@ void UAuroraPresetBase::CopyFrom(UAuroraPresetBase* Source)
 
 void UAuroraPresetBase::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance)
 {
-	MaterialInstance->SetTextureParameterValue(TEXT("Noise"), NoiseTexture);
+	MaterialInstance->SetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture);
 	MaterialInstance->SetScalarParameterValue(TEXT("Intensity"), Intensity);
-	MaterialInstance->SetVectorParameterValue(TEXT("Speed"), FVector3f(Speed, 0.0f));
-	MaterialInstance->SetScalarParameterValue(TEXT("BaseDensity"), BaseDensity);
-	MaterialInstance->SetScalarParameterValue(TEXT("BaseScale"), BaseScale);
+	MaterialInstance->SetScalarParameterValue(TEXT("Density"), Density);
 
 	MaterialInstance->SetVectorParameterValue(TEXT("TopColor"), TopColor);
 	MaterialInstance->SetVectorParameterValue(TEXT("MidColor"), MidColor);
@@ -111,11 +119,11 @@ void UAuroraPresetBase::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstanc
 
 UNoiseAuroraPreset::UNoiseAuroraPreset()
 {
-	static ConstructorHelpers::FObjectFinder<UTexture2D> DefaultSDF(TEXT("/VolumetricAurora/Textures/SimplexNoise/simplex_seamless_0_01"));
+	static ConstructorHelpers::FObjectFinder<UTexture2D> DefaultDF(TEXT("/VolumetricAurora/Textures/SimplexNoise/simplex_seamless_0_01"));
 
-	if (DefaultSDF.Succeeded())
+	if (DefaultDF.Succeeded())
 	{
-		NoiseTexture = DefaultSDF.Object.Get();
+		ShapeTexture = DefaultDF.Object.Get();
 	}
 }
 
@@ -130,6 +138,8 @@ void UNoiseAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstan
 	MaterialInstance->SetScalarParameterValue(TEXT("MaskScaleMultiplier"), MaskScaleMultiplier);
 	MaterialInstance->SetVectorParameterValue(TEXT("MaskSpeedMultiplier"), FVector(MaskSpeedMultiplier, 0.0f));
 	MaterialInstance->SetScalarParameterValue(TEXT("MaskOpacity"), MaskOpacity);
+	MaterialInstance->SetScalarParameterValue(TEXT("ShapeFrequency"), ShapeFrequency);
+	MaterialInstance->SetVectorParameterValue(TEXT("ShapeSpeed"), FVector3f(ShapeSpeed, 0.0f));
 
 	MaterialInstance->SetScalarParameterValue(TEXT("UseStructureColoring"), bUseStructureColoring);
 	MaterialInstance->SetVectorParameterValue(TEXT("SoftTint"), SoftTint);
@@ -141,11 +151,11 @@ void UNoiseAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstan
 
 USplineAuroraPreset::USplineAuroraPreset()
 {
-	static ConstructorHelpers::FObjectFinder<UTexture2D> DefaultSDF(TEXT("/VolumetricAurora/Textures/SDFTextures/SDFDefault"));
+	static ConstructorHelpers::FObjectFinder<UTexture2D> DefaultDF(TEXT("/VolumetricAurora/Textures/DFTextures/DFDefault"));
 
-	if (DefaultSDF.Succeeded())
+	if (DefaultDF.Succeeded())
 	{
-		NoiseTexture = DefaultSDF.Object.Get();
+		ShapeTexture = DefaultDF.Object.Get();
 	}
 }
 
@@ -285,6 +295,126 @@ void UPotentialFlowAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* Materi
 
 	if (DisplayBuffer)
 	{
-		MaterialInstance->SetTextureParameterValue(TEXT("Noise"), Cast<UTexture>(DisplayBuffer));
+		MaterialInstance->SetTextureParameterValue(TEXT("ShapeTexture"), Cast<UTexture>(DisplayBuffer));
 	}
+}
+
+#if WITH_EDITOR
+void UPotentialFlowAuroraPreset::CaptureSimulationCheckpoint(FString TargetAuroraName, float CurrentSimulationTime)
+{
+	// Validate render target exists
+	if (!FrontBuffer)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CaptureSimulationCheckpoint failed: FrontBuffer is null"));
+		return;
+	}
+
+	// Get dimensions from source RenderTarget
+	int32 Width = FrontBuffer->SizeX;
+	int32 Height = FrontBuffer->SizeY;
+	
+	// Define checkpoint texture save path
+	FString PackageName = FString::Printf(
+		TEXT("/VolumetricAurora/Textures/FlowCheckpoints/CheckpointTexture_%s_%s"),
+		*TargetAuroraName,
+		*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"))
+	);
+	FString TextureName = FPaths::GetBaseFilename(PackageName);
+
+	// Create package
+	UPackage* Package = CreatePackage(*PackageName);
+	if (!Package)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to create package"));
+		return;
+	}
+	Package->FullyLoad();
+
+	// Create UTexture2D with HDR format for FloatRGBA data
+	UTexture2D* NewTexture = NewObject<UTexture2D>(
+		Package,
+		*TextureName,
+		RF_Public | RF_Standalone | RF_MarkAsRootSet
+	);
+
+	if (!NewTexture)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to create UTexture2D"));
+		return;
+	}
+
+	// Configure texture properties for HDR float data
+	NewTexture->SRGB = false;
+	NewTexture->CompressionSettings = TC_HDR;
+	NewTexture->MipGenSettings = TMGS_NoMipmaps;
+
+	// Read float data from RenderTarget
+	FTextureRenderTargetResource* RTResource = FrontBuffer->GameThread_GetRenderTargetResource();
+	if (!RTResource)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to get RenderTarget resource"));
+		return;
+	}
+
+	TArray<FLinearColor> FloatPixels;
+	FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+	ReadFlags.SetLinearToGamma(false);
+	RTResource->ReadLinearColorPixels(FloatPixels, ReadFlags);
+
+	// Initialize Source data with RGBA16F format (required for serialization)
+	NewTexture->Source.Init(Width, Height, 1, 1, TSF_RGBA16F);
+
+	// Lock Source mip and write float16 data
+	uint8* SourceMipData = NewTexture->Source.LockMip(0);
+	FFloat16Color* DestData = reinterpret_cast<FFloat16Color*>(SourceMipData);
+
+	// Convert FLinearColor to FFloat16Color
+	for (int32 i = 0; i < FloatPixels.Num(); i++)
+	{
+		DestData[i] = FFloat16Color(FloatPixels[i]);
+	}
+
+	NewTexture->Source.UnlockMip(0);
+
+	// UpdateResource will automatically generate PlatformData from Source
+	NewTexture->UpdateResource();
+
+	// Save package
+	FString PackageFileName = FPackageName::LongPackageNameToFilename(
+		PackageName,
+		FPackageName::GetAssetPackageExtension()
+	);
+
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	SaveArgs.Error = GError;
+
+	if (UPackage::SavePackage(Package, NewTexture, *PackageFileName, SaveArgs))
+	{
+		FAssetRegistryModule::AssetCreated(NewTexture);
+
+		SimulationCheckpointTexture = NewTexture;
+		SimulationCheckpointTime = CurrentSimulationTime;
+		SimulationCheckpointResolution = Width;
+
+		UE_LOG(
+			LogTemp,
+			Log,
+			TEXT("Checkpoint saved: %s (Time: %.2f, Resolution: %dx%d)"),
+			*PackageFileName,
+			CurrentSimulationTime,
+			Width,
+			Height
+		);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("Failed to save checkpoint package"));
+	}
+}
+#endif
+
+bool UPotentialFlowAuroraPreset::HasValidCheckpoint() const
+{
+	return SimulationCheckpointTexture != nullptr && SimulationCheckpointTexture->IsValidLowLevel();
 }

@@ -20,7 +20,7 @@ enum class EControlPointType : uint8
 	Dipole			UMETA(DisplayName = "Dipole"),			// Directional flow (source+sink pair)
 	Curl			UMETA(DisplayName = "Curl"),			// Curl noise field
 	Warp			UMETA(DisplayName = "Warp"),			// Domain warping noise field
-	Emitter			UMETA(DisplayName = "Emitter"),		// Emit particle
+	Emitter			UMETA(DisplayName = "Emitter"),			// Emit particle
 	Attenuator		UMETA(DisplayName = "Attenuator"),		// Attenuate particle
 };
 
@@ -58,37 +58,6 @@ struct FAuroraFlowElement
 			EditConditionHides))
 	EControlPointRange Range = EControlPointRange::Global;
 
-	/** Show advanced parameters for Curl/Warp noise types */
-	UPROPERTY(
-		EditAnywhere,
-		BlueprintReadWrite,
-		Category = "AuroraControlPoint",
-		meta = (
-			EditCondition = "Type == EControlPointType::Curl || Type == EControlPointType::Warp",
-			EditConditionHides))
-	bool bShowAdvanced = false;
-
-	// ========================================================================
-	// Debug Parameter
-	// ========================================================================
-
-	/** Whether to visualize the control point's location */
-	UPROPERTY(
-		EditAnywhere,
-		BlueprintReadWrite,
-		Category = "DebugVisualization")
-	bool bDisplayControlPoint = true;
-	
-	/** Whether to visualize the control point's attenuation range */
-	UPROPERTY(
-		EditAnywhere,
-		BlueprintReadWrite,
-		Category = "DebugVisualization",
-		meta = (
-			EditCondition = "Range != EControlPointRange::Global",
-			EditConditionHides))
-	bool bDisplayAttenuationRange = true;
-	
 	// ========================================================================
 	// Position-based Control Points (Source, Sink, Vortex, Spiral, Dipole)
 	// ========================================================================
@@ -99,10 +68,44 @@ struct FAuroraFlowElement
 		BlueprintReadWrite,
 		Category = "AuroraControlPoint",
 		meta = (
-			EditCondition = "Type != EControlPointType::None",
+			EditCondition = "Type != EControlPointType::None && !(Type == EControlPointType::Curl && Range == EControlPointRange::Global) && !(Type == EControlPointType::Warp && Range == EControlPointRange::Global)",
 			EditConditionHides,
 			UIMin = "-0.5", UIMax = "1.5"))
 	FVector2D Position = FVector2D(0.0, 0.0);
+
+	// ========================================================================
+	// Debug Parameter
+	// ========================================================================
+
+	/** Whether to visualize the control point's location */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "DebugVisualization",
+		meta = (
+			EditCondition = "Type != EControlPointType::None && !(Type == EControlPointType::Curl && Range == EControlPointRange::Global) && !(Type == EControlPointType::Warp && Range == EControlPointRange::Global)",
+			EditConditionHides))
+	bool bDisplayControlPoint = true;
+	
+	/** Whether to visualize the control point's attenuation range */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "DebugVisualization",
+		meta = (
+			EditCondition = "Type != EControlPointType::None && Range != EControlPointRange::Global",
+			EditConditionHides))
+	bool bDisplayAttenuationRange = true;
+
+	/** Show advanced parameters for Curl/Warp noise types */
+	UPROPERTY(
+		EditAnywhere,
+		BlueprintReadWrite,
+		Category = "AuroraControlPoint",
+		meta = (
+			EditCondition = "Type == EControlPointType::Curl || Type == EControlPointType::Warp",
+			EditConditionHides))
+	bool bShowAdvanced = false;
 
 	// ========================================================================
 	// Radial (Source / Sink / Spiral)

@@ -9,9 +9,10 @@
 
 struct FNoiseParams
 {
-    float2 Speed;
-    float BaseDensity;
-    float BaseScale;
+    float Density;
+    
+    float ShapeFrequency;
+    float2 ShapeSpeed;
     
     bool bIsDual;
     float Smoothness;
@@ -129,8 +130,8 @@ struct FRayMarcher
     {
         float H = saturate(NormalizedHeight);
 
-        float MidStart = saturate(RayMarchData.MidColorHeight.x);   // 0~1
-        float MidEnd = saturate(RayMarchData.MidColorHeight.y);     // 0~1
+        float MidStart = saturate(RayMarchData.MidColorHeight.x); // 0~1
+        float MidEnd = saturate(RayMarchData.MidColorHeight.y); // 0~1
         MidEnd = max(MidEnd, MidStart + 0.0001);
 
         // Bottom to Mid
@@ -171,8 +172,8 @@ struct FRayMarcher
     }
     
     FRayMarchResult CurtainAndFlowAurora(
-        Texture2D TargetNoiseTex,
-        SamplerState TargetSampler,
+        Texture2D ShapeTex,
+        SamplerState ShapeTexSampler,
         Texture2D SimplexNoiseTex,
         SamplerState SimplexNoiseSampler,
         float StepLen,
@@ -207,15 +208,15 @@ struct FRayMarcher
             // (-1 ~ +1) -> (0 ~ 1)
             float2 BaseUV = (RayXYNorm) * 0.5 + 0.5;
             
-            float2 AuroraUV = UVTranslation(BaseUV, RayMarchData.TargetNoise.Speed, RayMarchData.Time);
-            AuroraUV = AuroraUV * RayMarchData.TargetNoise.BaseScale;
-            
             [branch]
             if (RayMarchData.TargetNoise.bIsDual)
             {
+                float2 AuroraUV = UVTranslation(BaseUV, RayMarchData.TargetNoise.ShapeSpeed, RayMarchData.Time);
+                AuroraUV = AuroraUV * RayMarchData.TargetNoise.ShapeFrequency;
+            
                 // 마스크 UV 계산
-                float2 MaskUV = UVTranslation(BaseUV, RayMarchData.TargetNoise.Speed * RayMarchData.TargetNoise.MaskSpeedMultiplier, RayMarchData.Time);
-                MaskUV = MaskUV * RayMarchData.TargetNoise.BaseScale * RayMarchData.TargetNoise.MaskScaleMultiplier;
+                float2 MaskUV = UVTranslation(BaseUV, RayMarchData.TargetNoise.ShapeSpeed * RayMarchData.TargetNoise.MaskSpeedMultiplier, RayMarchData.Time);
+                MaskUV = MaskUV * RayMarchData.TargetNoise.ShapeFrequency * RayMarchData.TargetNoise.MaskScaleMultiplier;
                 MaskUV = frac(MaskUV);
                 float MaskNoiseRaw = SimplexNoiseTex.SampleLevel(SimplexNoiseSampler, MaskUV, 0.0).g;
 
@@ -231,19 +232,19 @@ struct FRayMarcher
                 UV1 = frac(UV1);
                 UV2 = frac(UV2);
             
-                float Noise1 = TargetNoiseTex.SampleLevel(TargetSampler, UV1, 0).r;
-                float Noise2 = TargetNoiseTex.SampleLevel(TargetSampler, UV2, 0).r;
+                float Noise1 = ShapeTex.SampleLevel(ShapeTexSampler, UV1, 0).r;
+                float Noise2 = ShapeTex.SampleLevel(ShapeTexSampler, UV2, 0).r;
             
                 float NoiseDiff = Noise1 - Noise2;
                 float ThinCurtain = smoothstep(-RayMarchData.TargetNoise.Smoothness, RayMarchData.TargetNoise.Smoothness, NoiseDiff);
                 ThinCurtain = (0.5 - abs(ThinCurtain - 0.5)) * 2.0;
                 ThinCurtain = pow(ThinCurtain, 2.0);
             
-                StepDensity = ThinCurtain * RayMarchData.TargetNoise.BaseDensity * MaskNoise * HeightFactor * PathLenRatio;
+                StepDensity = ThinCurtain * RayMarchData.TargetNoise.Density * MaskNoise * HeightFactor * PathLenRatio;
             }
             else
             {
-                StepDensity = TargetNoiseTex.SampleLevel(TargetSampler, AuroraUV, 0) * RayMarchData.TargetNoise.BaseDensity * HeightFactor * PathLenRatio;
+                StepDensity = ShapeTex.SampleLevel(ShapeTexSampler, BaseUV, 0) * RayMarchData.TargetNoise.Density * HeightFactor * PathLenRatio;
             }
             
             StepDensity *= CalculateFade(RayPoint);
@@ -258,7 +259,7 @@ struct FRayMarcher
             float EmissionWeight = lerp(1.0, Normalized, RayMarchData.EmissiveStructureAmount);
             
             // COLOR SEPARATION
-            float3 BaseColor = CalculateColor(NormalizedHeight);    // Base palette
+            float3 BaseColor = CalculateColor(NormalizedHeight); // Base palette
 
             // Color-only structure mask (gentle)
             float ColorStructure = saturate(OpticalDepth / (RayMarchData.EmissiveStructurePivot * 2.0));
@@ -287,8 +288,8 @@ struct FRayMarcher
     }
     
     FRayMarchResult SplineAurora(
-        Texture2D TargetNoiseTex,
-        SamplerState TargetSampler,
+        Texture2D ShapeTex,
+        SamplerState ShapeTexSampler,
         Texture2D SimplexNoiseTex,
         SamplerState SimplexNoiseSampler,
         float StepLen,
@@ -331,9 +332,7 @@ struct FRayMarcher
             //float StepNoise = SimplexNoiseTex.SampleLevel(SimplexNoiseSampler, BaseUV * 0.1 + RayMarchData.Time * 0.001, 0).r * 2.0;
             //StepNoise *= StepNoise;
             {
-                float2 UVTransformed = UVTranslation(BaseUV * RayMarchData.TargetNoise.BaseScale, RayMarchData.TargetNoise.Speed, RayMarchData.Time);
-                
-                UVTransformed += 1.0 * SineShake(UVTransformed, RayMarchData.Time * 0.01);
+                float2 UVTransformed = BaseUV + (1.0 * SineShake(BaseUV, RayMarchData.Time * 0.01));
                 
                 float2 DistortionUV1 = UVTransformed * 3.0 + float2(1.0, 0.5) * RayMarchData.Time * RayMarchData.TargetNoise.DistortionSpeed;
                 float2 DistortionUV2 = UVTransformed * 3.0 + float2(-0.5, 1.0) * RayMarchData.Time * RayMarchData.TargetNoise.DistortionSpeed;
@@ -347,7 +346,7 @@ struct FRayMarcher
              
                 Distortion = (Distortion * 2.0 - 1.0) * RayMarchData.TargetNoise.Distortion * TransmitFactor * DistortionHeight;
                 
-                float SDFValue = TargetNoiseTex.SampleLevel(TargetSampler, UVTransformed + Distortion, 0);
+                float DFValue = ShapeTex.SampleLevel(ShapeTexSampler, UVTransformed + Distortion, 0);
                 
                 float HeightDist = NormalizedHeight - PeakHeight;
                 float HeightFactor = saturate(1.0 - HeightDist * lerp(-InvPeak, InvRest, step(0, HeightDist)));
@@ -356,12 +355,12 @@ struct FRayMarcher
                 float Sharpness = saturate(1.0 - abs(HeightDist) * 4.0) * 0.2;
                 HeightFactor = clamp(HeightFactor - NoiseHeight * Sharpness, 0.0, 0.83);
                 
-                if (SDFValue < RayMarchData.TargetNoise.Thickness)
+                if (DFValue < RayMarchData.TargetNoise.Thickness)
                 {
                     // 외각선으로부터 거리, 중심부가 더 밝게 조절하기 위함
-                    float R = (RayMarchData.TargetNoise.Thickness - SDFValue);
+                    float R = (RayMarchData.TargetNoise.Thickness - DFValue);
                     
-                    StepDensity = RayMarchData.TargetNoise.BaseDensity * HeightFactor * PathLenRatio * (R * 0.002);
+                    StepDensity = RayMarchData.TargetNoise.Density * HeightFactor * PathLenRatio * (R * 0.002);
                 }
                 else
                 {
@@ -391,8 +390,8 @@ struct FRayMarcher
     
     FRayMarchResult RayMarch(
         FRayMarchData InRayMarchData,
-        Texture2D TargetNoiseTex,
-        SamplerState TargetSampler,
+        Texture2D ShapeTex,
+        SamplerState ShapeTexSampler,
         Texture2D SimplexNoiseTex,
         SamplerState SimplexNoiseSampler)
     {
@@ -408,11 +407,11 @@ struct FRayMarcher
         [branch]
         if (RayMarchData.TargetNoise.bIsSpline)
         {
-            return SplineAurora(TargetNoiseTex, TargetSampler, SimplexNoiseTex, SimplexNoiseSampler, StepLen, PathLenRatio);
+            return SplineAurora(ShapeTex, ShapeTexSampler, SimplexNoiseTex, SimplexNoiseSampler, StepLen, PathLenRatio);
         }
         else
         {
-            return CurtainAndFlowAurora(TargetNoiseTex, TargetSampler, SimplexNoiseTex, SimplexNoiseSampler, StepLen, PathLenRatio);
+            return CurtainAndFlowAurora(ShapeTex, ShapeTexSampler, SimplexNoiseTex, SimplexNoiseSampler, StepLen, PathLenRatio);
         }
     }
 };

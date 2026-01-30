@@ -1,0 +1,16 @@
+Asset path: VolumetricAurora/Content/Sky/full-moon.uasset
+
+Credit: NASA Science Mission Directorate / Goddard Space Flight Center
+
+URL: https://science.nasa.gov/image-detail/amf-gsfc_20171208_archive_e001982/
+
+License: Public Domain
+
+
+
+The link provided below is the official NASA Media Usage Guidelines, which outlines the copyright status of NASA's media content
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+As stated in the guidelines above, NASA explicitly confirms the following regarding its content:
+
+NASA content - images, audio, video, and computer files used in the rendition of 3D models, such as texture maps and polygon data in any format - generally are not subject to copyright in the United States

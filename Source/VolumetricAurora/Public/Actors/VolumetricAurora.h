@@ -96,6 +96,13 @@ public:
 #if WITH_EDITOR
 	UFUNCTION()
 	void ResetFlowSimulation();
+
+	/**
+	 * @brief Capture current flow simulation state as checkpoint
+	 * Stores current FrontBuffer and simulation time to preset
+	 */
+	UFUNCTION()
+	void CaptureFlowSimulationCheckpoint();
 #endif
 
 	// ========================================================================
@@ -179,7 +186,7 @@ public:
 public:
 #if WITH_EDITORONLY_DATA
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "HideCategory")
-	class USDFBakerComponentBase* SDFBakerComponent;
+	class UDFBakerComponentBase* DFBakerComponent;
 
 
 	// ========================================================================
@@ -387,9 +394,6 @@ private:
 #endif
 
 private:
-	/**	Normalize flow simulation parameter */
-	void NormalizeFlowSimulationParameter();
-
 	/** Execute aurora flow simulation compute shader pass */
 	void SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPreset, float DeltaTime);
 

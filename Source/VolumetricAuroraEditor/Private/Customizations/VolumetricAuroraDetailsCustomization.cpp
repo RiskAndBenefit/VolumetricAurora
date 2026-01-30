@@ -200,6 +200,28 @@ void FVolumetricAuroraDetailsCustomization::CustomizeDetails(IDetailLayoutBuilde
 		.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnResetClicked)
 	];
 
+	// Add "Capture Checkpoint" button
+	AuroraCategory.AddCustomRow(LOCTEXT("CaptureCheckpoint", "Capture Checkpoint"))
+	.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+	{
+		return IsPotentialFlowPresetSelected()
+		? EVisibility::Visible
+		: EVisibility::Collapsed;
+	}))
+	.NameContent()
+	[
+		// Left side: Label
+		SNew(STextBlock)
+		.Text(LOCTEXT("CaptureCheckpointLabel", "Simulation Checkpoint"))
+		.Font(IDetailLayoutBuilder::GetDetailFont())
+	]
+	.ValueContent()
+	[
+		SNew(SButton)
+		.Text(LOCTEXT("CaptureBtn", "Capture Current State"))
+		.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnCaptureCheckpointClicked)
+	];
+
 	// Add "Edit Elements Map" button
 	AuroraCategory.AddCustomRow(LOCTEXT("EditElementRow", "Edit Elements Map"))
 	.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
@@ -287,6 +309,23 @@ FReply FVolumetricAuroraDetailsCustomization::OnResetClicked()
 	AVolumetricAurora* Aurora = SelectedAuroras[0].Get();
 	
 	Aurora->ResetFlowSimulation();
+	return FReply::Handled();
+}
+
+FReply FVolumetricAuroraDetailsCustomization::OnCaptureCheckpointClicked()
+{
+	// Validate selected Aurora actor exists
+	if (SelectedAuroras.Num() == 0 || !SelectedAuroras[0].IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("No valid VolumetricAurora selected"));
+		return FReply::Handled();
+	}
+
+	AVolumetricAurora* Aurora = SelectedAuroras[0].Get();
+
+	// Call wrapper function to capture checkpoint
+	Aurora->CaptureFlowSimulationCheckpoint();
+
 	return FReply::Handled();
 }
 

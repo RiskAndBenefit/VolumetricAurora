@@ -1,7 +1,7 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
-#include "Widgets/SaveSDFTextureAsWidget.h"
-#include "Components/SplineSDFTextureBakerComponent.h"
+#include "Widgets/SaveDFTextureAsWidget.h"
+#include "Components/SplineDFTextureBakerComponent.h"
 #include "SlateOptMacros.h"
 #include "ContentBrowserModule.h"
 #include "IContentBrowserSingleton.h"
@@ -10,22 +10,22 @@
 #include "Widgets/Layout/SBox.h"
 
 BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
-void SSaveSDFTextureAsWidget::Construct(const FArguments& InArgs)
+void SSaveDFTextureAsWidget::Construct(const FArguments& InArgs)
 {
 	ParentWindow = InArgs._ParentWindow;
 	BakerComponent = InArgs._BakerComponent;
 
 	PresetManager = GEditor->GetEditorSubsystem<UAuroraPresetManager>();
 
-	FString VirtualPath = TEXT("/") + PresetManager->GetPluginName() + TEXT("/Textures/SDFTextures");
+	FString VirtualPath = TEXT("/") + PresetManager->GetPluginName() + TEXT("/Textures/DFTextures");
 
 	FAssetPickerConfig Config;
 	Config.Filter.Clear();
 	Config.Filter.ClassPaths.Add(UTexture2D::StaticClass()->GetClassPathName());
 
 	Config.Filter.bRecursivePaths = true;
-	Config.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SSaveSDFTextureAsWidget::OnAssetSelected);
-	Config.OnAssetDoubleClicked = FOnAssetDoubleClicked::CreateSP(this, &SSaveSDFTextureAsWidget::OnAssetDoubleClicked);
+	Config.OnAssetSelected = FOnAssetSelected::CreateSP(this, &SSaveDFTextureAsWidget::OnAssetSelected);
+	Config.OnAssetDoubleClicked = FOnAssetDoubleClicked::CreateSP(this, &SSaveDFTextureAsWidget::OnAssetDoubleClicked);
 	Config.InitialAssetViewType = EAssetViewType::List;
 	Config.bAllowRename = true;
 	Config.OnShouldFilterAsset = FOnShouldFilterAsset::CreateLambda([VirtualPath](const FAssetData& AssetData)
@@ -77,7 +77,7 @@ void SSaveSDFTextureAsWidget::Construct(const FArguments& InArgs)
 						.MaxWidth(205)
 						[
 							SAssignNew(NameInputBox, SEditableTextBox)
-								.OnTextChanged(this, &SSaveSDFTextureAsWidget::OnTextChanged)
+								.OnTextChanged(this, &SSaveDFTextureAsWidget::OnTextChanged)
 						]
 						+ SHorizontalBox::Slot()
 						.AutoWidth()
@@ -89,7 +89,7 @@ void SSaveSDFTextureAsWidget::Construct(const FArguments& InArgs)
 								[
 									SNew(SButton)
 										.Text(FText::FromString("Save"))
-										.OnClicked(this, &SSaveSDFTextureAsWidget::OnSaveClicked)
+										.OnClicked(this, &SSaveDFTextureAsWidget::OnSaveClicked)
 								]
 								+ SHorizontalBox::Slot()
 								.AutoWidth()
@@ -97,7 +97,7 @@ void SSaveSDFTextureAsWidget::Construct(const FArguments& InArgs)
 								[
 									SNew(SButton)
 										.Text(FText::FromString("Cancel"))
-										.OnClicked(this, &SSaveSDFTextureAsWidget::OnCancelClicked)
+										.OnClicked(this, &SSaveDFTextureAsWidget::OnCancelClicked)
 								]
 						]
 				]
@@ -106,23 +106,23 @@ void SSaveSDFTextureAsWidget::Construct(const FArguments& InArgs)
 }
 END_SLATE_FUNCTION_BUILD_OPTIMIZATION
 
-void SSaveSDFTextureAsWidget::OnAssetSelected(const FAssetData& AssetData)
+void SSaveDFTextureAsWidget::OnAssetSelected(const FAssetData& AssetData)
 {
 	NameInputBox->SetText(FText::FromName(AssetData.AssetName));
 }
 
-void SSaveSDFTextureAsWidget::OnAssetDoubleClicked(const FAssetData& AssetData)
+void SSaveDFTextureAsWidget::OnAssetDoubleClicked(const FAssetData& AssetData)
 {
 	OnAssetSelected(AssetData);
 	OnSaveClicked();
 }
 
-void SSaveSDFTextureAsWidget::OnTextChanged(const FText& InText)
+void SSaveDFTextureAsWidget::OnTextChanged(const FText& InText)
 {
 	ValidationResult = PresetManager->ValidatePresetName(InText.ToString());
 }
 
-FReply SSaveSDFTextureAsWidget::OnSaveClicked()
+FReply SSaveDFTextureAsWidget::OnSaveClicked()
 {
 	if (PresetManager)
 	{
@@ -134,7 +134,7 @@ FReply SSaveSDFTextureAsWidget::OnSaveClicked()
 			return FReply::Handled();
 		}
 
-		BakerComponent->MakeSDFTexture(NewTextureName);
+		BakerComponent->MakeDFTexture(NewTextureName);
 
 		if (ParentWindow.IsValid())
 		{
@@ -144,7 +144,7 @@ FReply SSaveSDFTextureAsWidget::OnSaveClicked()
 	return FReply::Handled();
 }
 
-FReply SSaveSDFTextureAsWidget::OnCancelClicked()
+FReply SSaveDFTextureAsWidget::OnCancelClicked()
 {
 	if (ParentWindow.IsValid())
 		ParentWindow.Pin()->RequestDestroyWindow();

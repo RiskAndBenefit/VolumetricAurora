@@ -1,14 +1,14 @@
 ﻿// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "Widgets/AuroraElementsPainterWidget.h"
-#include "Widgets/AuroraPreviewViewport.h"
+#include "Widgets/SaveFlowElementMapAsWidget.h"
 
 #include "Actors/VolumetricAurora.h"
-#include "AssetRegistry/AssetRegistryModule.h"
-#include "Components/Image.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "UObject/SavePackage.h"
-#include "Widgets/SaveFlowElementMapAsWidget.h"
+#include "Misc/PackageName.h"
+#include "Misc/MessageDialog.h"
+#include "HAL/FileManager.h"
 
 void UAuroraElementsPainterWidget::SetPreviewRenderTarget(UTextureRenderTarget2D* RenderTarget)
 {
@@ -169,6 +169,31 @@ void UAuroraElementsPainterWidget::Save()
 		PackageName,
 		FPackageName::GetAssetPackageExtension()
 	);
+
+	// Check whether the package file is read-only.
+	// If so, abort Save() and fall back to SaveAs().
+	if (IFileManager::Get().FileExists(*PackageFileName) &&
+		IFileManager::Get().IsReadOnly(*PackageFileName))
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("Save: Package file is read-only (cannot overwrite): %s"),
+			*PackageFileName
+		);
+
+		// show warning log
+		FMessageDialog::Open(
+			EAppMsgType::Ok,
+			FText::FromString(
+				TEXT("This texture file is read-only.\n")
+				TEXT("The asset will be saved as a new file.")
+			)
+		);
+
+		SaveAs();
+		return;
+	}
 
 	FSavePackageArgs SaveArgs;
 	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;

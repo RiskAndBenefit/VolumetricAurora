@@ -10,10 +10,10 @@
 #include "GlobalShader.h"
 #include "RHIStaticStates.h"
 #include "Math/UnrealMathUtility.h"
-#include "Components/SDFBakerComponentBase.h"
+#include "Components/DFBakerComponentBase.h"
 #include "RenderTargetPool.h"
 #include "RenderGraphUtils.h"
-#include "ComputeShaders/AuroraSDFBakeCS.h"
+#include "ComputeShaders/AuroraDFBakeCS.h"
 #include "ComputeShaders/AuroraFlowSimulateCS.h"
 #include "ChartCreation.h"
 #include "ComputeShaders/DistanceMapBakeCS.h"
@@ -33,16 +33,15 @@
 
 #if WITH_EDITOR
 #include "Editor.h"
-#include "UnrealEdGlobals.h"
-#include "Editor/UnrealEdEngine.h"
 #include "PropertyEditorModule.h"
 #include "Modules/ModuleManager.h"
-#include "AssetToolsModule.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/AssetData.h"
 #include "Interfaces/IPluginManager.h"
 #include "Components/SceneCaptureComponent2D.h"
-#include "Kismet/GameplayStatics.h"
+
+#include "Kismet/KismetRenderingLibrary.h"
+#include "AssetToolsModule.h"
+#include "PackageTools.h"
 #endif
 
 // Sets default values
@@ -60,10 +59,10 @@ AVolumetricAurora::AVolumetricAurora()
 	VolumeBox->SetRelativeScale3D(FVector(50000.0f, 50000.0f, 1200.0f));
 
 #if WITH_EDITOR
-	//SDFBakerComponent = CreateDefaultSubobject<USplineSDFTextureBakerComponent>(TEXT("SplineSDFTextureBakerComponent"));
-	//if (SDFBakerComponent && RootComponent)
+	//DFBakerComponent = CreateDefaultSubobject<USplineDFTextureBakerComponent>(TEXT("SplineDFTextureBakerComponent"));
+	//if (DFBakerComponent && RootComponent)
 	//{
-	//	SDFBakerComponent->SetupAttachment(RootComponent);
+	//	DFBakerComponent->SetupAttachment(RootComponent);
 	//}
 #endif
 
@@ -171,7 +170,6 @@ void AVolumetricAurora::PostActorCreated()
 
 	if (!TargetAurora || !SourcePreset)
 	{
-
 		ApplyPresetToTarget(DefaultAurora);
 	}
 }
@@ -188,8 +186,14 @@ void AVolumetricAurora::PostLoad()
 
 	if (!TargetAurora || !SourcePreset)
 	{
-
 		ApplyPresetToTarget(DefaultAurora);
+	}
+
+	// Auto-restore checkpoint in editor
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (FlowPreset && FlowPreset->HasValidCheckpoint())
+	{
+		bForceResetSimulation = true;
 	}
 }
 
@@ -198,23 +202,23 @@ void AVolumetricAurora::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 #if WITH_EDITOR
-	if (!SDFBakerComponent && GIsEditor && !IsTemplate())
+	if (!DFBakerComponent && GIsEditor && !IsTemplate())
 	{
-		UClass* SDFBakerClass = StaticLoadClass(UObject::StaticClass(), nullptr, TEXT("/Script/VolumetricAuroraEditor.SplineSDFTextureBakerComponent"));
+		UClass* DFBakerClass = StaticLoadClass(UObject::StaticClass(), nullptr, TEXT("/Script/VolumetricAuroraEditor.SplineDFTextureBakerComponent"));
 
-		if (SDFBakerClass)
+		if (DFBakerClass)
 		{
-			SDFBakerComponent = NewObject<USDFBakerComponentBase>(this, SDFBakerClass);
-			if (SDFBakerComponent && RootComponent)
+			DFBakerComponent = NewObject<UDFBakerComponentBase>(this, DFBakerClass);
+			if (DFBakerComponent && RootComponent)
 			{
-				SDFBakerComponent->CreationMethod = EComponentCreationMethod::Instance;
-				SDFBakerComponent->SetFlags(RF_Transactional);
+				DFBakerComponent->CreationMethod = EComponentCreationMethod::Instance;
+				DFBakerComponent->SetFlags(RF_Transactional);
 
-				this->AddInstanceComponent(SDFBakerComponent);
+				this->AddInstanceComponent(DFBakerComponent);
 
-				SDFBakerComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
-				SDFBakerComponent->OnComponentCreated();
-				SDFBakerComponent->RegisterComponent();
+				DFBakerComponent->AttachToComponent(RootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+				DFBakerComponent->OnComponentCreated();
+				DFBakerComponent->RegisterComponent();
 
 				PostEditChange();
 			}
@@ -234,8 +238,8 @@ void AVolumetricAurora::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// TODO: Need modification later (allow user to bake SDF texture to different path)
-	//MakeSDFTexture();
+	// TODO: Need modification later (allow user to bake DF texture to different path)
+	//MakeDFTexture();
 
 	// Ensure preset exists (simulation data)
 	if (!TargetAurora)
@@ -247,6 +251,13 @@ void AVolumetricAurora::BeginPlay()
 	if (!AuroraMaterialDynamic && VolumeBox)
 	{
 		AuroraMaterialDynamic = VolumeBox->CreateAndSetMaterialInstanceDynamic(0);
+	}
+
+	// Auto-restore checkpoint on first load
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (FlowPreset && FlowPreset->HasValidCheckpoint())
+	{
+		bForceResetSimulation = true;
 	}
 }
 
@@ -340,12 +351,6 @@ void AVolumetricAurora::FlowTick(float DeltaTime)
 	// Swap buffers for next frame
 	Swap(FlowPreset->FrontBuffer, FlowPreset->BackBuffer);
 }
-
-void AVolumetricAurora::NormalizeFlowSimulationParameter()
-{
-
-}
-
 
 void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPreset, float DeltaTime)
 {
@@ -563,6 +568,12 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		AuroraElementsTexResource = FlowPreset->AuroraElementsMap->GetResource();
 	}
 
+	// Restore simulation time before render thread work
+	if (bResetSimulation && FlowPreset->HasValidCheckpoint())
+	{
+		FlowSimulationAccumulatedTime = FlowPreset->SimulationCheckpointTime;
+	}
+
 	// 2. Enqueue render command
 	ENQUEUE_RENDER_COMMAND(SimulateAuroraFlow)
 		(
@@ -604,7 +615,48 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 
 		if (bResetSimulation)
 		{
-			AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(BackBufferTexture), FLinearColor::Black);
+			// Restore from checkpoint if available, otherwise clear to black
+			if (FlowPreset->HasValidCheckpoint())
+			{
+				// Get checkpoint Texture2D resource
+				FTextureResource* CheckpointResource = FlowPreset->SimulationCheckpointTexture->GetResource();
+
+				if (CheckpointResource && CheckpointResource->TextureRHI)
+				{
+					// Validate resolution matches current RenderTarget
+					int32 CheckpointWidth = FlowPreset->SimulationCheckpointTexture->GetSizeX();
+					int32 CheckpointHeight = FlowPreset->SimulationCheckpointTexture->GetSizeY();
+					int32 CurrentWidth = FrontBufferTexture->Desc.Extent.X;
+					int32 CurrentHeight = FrontBufferTexture->Desc.Extent.Y;
+
+					if (CheckpointWidth == CurrentWidth && CheckpointHeight == CurrentHeight)
+					{
+						// Register checkpoint Texture2D as RDG texture
+						FRDGTextureRef CheckpointTexture = GraphBuilder.RegisterExternalTexture(
+							CreateRenderTarget(CheckpointResource->TextureRHI, TEXT("CheckpointTexture"))
+						);
+
+						// Copy checkpoint to both FrontBuffer and BackBuffer
+						// This ensures complete restoration of ping-pong buffer state
+						AddCopyTexturePass(GraphBuilder, CheckpointTexture, BackBufferTexture);
+					}
+					else
+					{
+						// Resolution mismatch: cannot restore, clear instead
+						AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(BackBufferTexture), FLinearColor::Black);
+					}
+				}
+				else
+				{
+					// Fallback: checkpoint texture resource not ready
+					AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(BackBufferTexture), FLinearColor::Black);
+				}
+			}
+			else
+			{
+				// No checkpoint: initialize with empty state
+				AddClearUAVPass(GraphBuilder, GraphBuilder.CreateUAV(BackBufferTexture), FLinearColor::Black);
+			}
 		}
 
 		FRDGTextureSRVRef BackBufferSRV = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::Create(BackBufferTexture));
@@ -1540,12 +1592,12 @@ AVolumetricAurora* AVolumetricAurora::CreatePreviewAurora()
 	}
 #endif
 
-	// Hide all SDFBoundVisualizerComponents (wireframe plane visualizers)
+	// Hide all DFBoundVisualizerComponents (wireframe plane visualizers)
 	TArray<UActorComponent*> BoundVisualizers;
 	PreviewActor->GetComponents(UStaticMeshComponent::StaticClass(), BoundVisualizers);
 	for (UActorComponent* Comp : BoundVisualizers)
 	{
-		if (Comp->GetClass()->GetName().Contains(TEXT("SDFBoundVisualizer")))
+		if (Comp->GetClass()->GetName().Contains(TEXT("DFBoundVisualizer")))
 		{
 			Cast<UStaticMeshComponent>(Comp)->SetVisibility(false);
 			Cast<UStaticMeshComponent>(Comp)->SetHiddenInGame(true);
@@ -1781,6 +1833,23 @@ void AVolumetricAurora::ResetFlowSimulation()
 	bForceResetSimulation = true;
 }
 
+void AVolumetricAurora::CaptureFlowSimulationCheckpoint()
+{
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (!FlowPreset)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("CaptureFlowSimulationCheckpoint failed: Not using PotentialFlowAuroraPreset")
+		);
+		return;
+	}
+
+	// Capture to instance only (not source - user must manually save)
+	FlowPreset->CaptureSimulationCheckpoint(GetName(), FlowSimulationAccumulatedTime);
+}
+
 #endif
 
 void AVolumetricAurora::ApplyPresetToTarget(UAuroraPresetBase* InPreset)
@@ -1807,6 +1876,13 @@ void AVolumetricAurora::ApplyPresetToTarget(UAuroraPresetBase* InPreset)
 
 	bControlPointsDirty = true;
 	bAuroraElementsMapDirty = true;
+
+	// Auto-restore checkpoint if new preset has one
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (FlowPreset && FlowPreset->HasValidCheckpoint())
+	{
+		bForceResetSimulation = true;
+	}
 }
 
 
@@ -1913,14 +1989,14 @@ void AVolumetricAurora::DebugAuroraState()
 			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: NOT FOUND!"));
 		}
 
-		UTexture* NoiseTexture = nullptr;
-		if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("NoiseTexture"), NoiseTexture))
+		UTexture* ShapeTexture = nullptr;
+		if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
 		{
-			UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture: %s"), NoiseTexture ? *NoiseTexture->GetName() : TEXT("NULL"));
+			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL"));
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture Parameter: NOT FOUND!"));
+			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture Parameter: NOT FOUND!"));
 		}
 	}
 
@@ -1931,7 +2007,7 @@ void AVolumetricAurora::DebugAuroraState()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("  - Intensity: %f"), TargetAurora->Intensity);
 		UE_LOG(LogTemp, Warning, TEXT("  - Altitude: %f km"), TargetAurora->Altitude);
-		UE_LOG(LogTemp, Warning, TEXT("  - NoiseTexture: %s"), TargetAurora->NoiseTexture ? *TargetAurora->NoiseTexture->GetName() : TEXT("NULL"));
+		UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), TargetAurora->ShapeTexture ? *TargetAurora->ShapeTexture->GetName() : TEXT("NULL"));
 
 		if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
 		{
@@ -2036,17 +2112,17 @@ void AVolumetricAurora::DisplayAuroraDebugInfo(bool bShowDetailed)
 					TEXT("  Intensity Param: NOT FOUND"));
 			}
 
-			UTexture* NoiseTexture = nullptr;
-			if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("NoiseTexture"), NoiseTexture))
+			UTexture* ShapeTexture = nullptr;
+			if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
 			{
 				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					FString::Printf(TEXT("  NoiseTexture: %s"),
-						NoiseTexture ? *NoiseTexture->GetName() : TEXT("NULL")));
+					FString::Printf(TEXT("  ShapeTexture: %s"),
+						ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL")));
 			}
 			else
 			{
 				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
-					TEXT("  NoiseTexture: NOT FOUND"));
+					TEXT("  ShapeTexture: NOT FOUND"));
 			}
 		}
 		else

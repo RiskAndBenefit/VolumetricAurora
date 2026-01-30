@@ -44,6 +44,7 @@ inline int32 GetResolutionValue(ETextureResolution Resolution)
 }
 
 class UTexture;
+class UTexture2D;
 class UTextureRenderTarget2D;
 class UMaterialInstanceDynamic;
 
@@ -59,34 +60,28 @@ public:
 #endif
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 1))
-	UTexture* NoiseTexture = nullptr;
+	UTexture* ShapeTexture = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 2, UIMin = "0.0", Units = "km", ForceUnits = "km"))
-	float Altitude = 1.1f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 3, UIMin = "0.0"))
-	float AuroraAreaExtent = 50.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 4, UIMin = "0.0"))
-	float AuroraHeight = 1.2f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 5))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 2))
 	float Intensity = 10.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 6))
-	FVector2f Speed = FVector2f(0.0f, 0.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 7))
-	float BaseDensity = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 8))
-	float BaseScale = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 4))
+	float Density = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 9, HideAlphaChannel))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 6, HideAlphaChannel))
 	FLinearColor TopColor = FLinearColor(0.22f, 0.26f, 0.5f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 10, HideAlphaChannel))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 7, HideAlphaChannel))
 	FLinearColor MidColor = FLinearColor(0.25f, 0.3f, 0.5f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 11, HideAlphaChannel))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 8, HideAlphaChannel))
 	FLinearColor BottomColor = FLinearColor(0.23f, 0.65f, 0.66f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 12, ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 9, ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
 	FVector2f MidColorHeight = FVector2f(0.5f, 0.5f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 10, UIMin = "0.0", Units = "km", ForceUnits = "km"))
+	float Altitude = 1.1f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 11, UIMin = "0.0"))
+	float AuroraAreaExtent = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 12, UIMin = "0.0"))
+	float AuroraHeight = 1.2f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 13))
 	EFadeType FadeType = EFadeType::Box;
@@ -124,6 +119,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
 	float Activity = 0.005f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (UIMin = "0.0", UIMax = "5.0"))
+	float ShapeFrequency = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (UIMin = "0.0", UIMax = "1.0"))
+	FVector2f ShapeSpeed = FVector2f(0.001f, 0.001f);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
 	float Smoothness = 0.2f;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
@@ -224,13 +225,16 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
 	bool bDisplayControlPoints = true;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
+		meta=(EditCondition="bDisplayControlPoints"))
 	bool bDisplayAttenuationRange = true;
 	
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
+		meta=(EditCondition="bDisplayControlPoints"))
 	float DisplaySize = 5.f;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
+		meta=(EditCondition="bDisplayControlPoints"))
 	float DisplayZPos = 0.f;
 	
 	// ========================================================================
@@ -279,6 +283,31 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
 	UTexture* AuroraElementsMap = nullptr;
 
+	/**
+	 * @brief Captured simulation state texture
+	 * Stores flow simulation snapshot for resuming from specific point
+	 * Format: PF_FloatRGBA (HDR), saved as permanent asset
+	 */
+	UPROPERTY(EditAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
+		ToolTip="Captured simulation state. Use 'Capture Current State' button to create checkpoint."))
+	TObjectPtr<UTexture2D> SimulationCheckpointTexture = nullptr;
+
+	/**
+	 * @brief Simulation time when checkpoint was captured
+	 * Used to restore accurate time state during checkpoint restoration
+	 */
+	UPROPERTY(VisibleAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
+		ToolTip="Timestamp when checkpoint was captured (in seconds)"))
+	float SimulationCheckpointTime = 0.0f;
+
+	/**
+	 * @brief Resolution of captured checkpoint texture
+	 * Used for validation during restore to ensure dimension match
+	 */
+	UPROPERTY(VisibleAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
+		ToolTip="Resolution of checkpoint texture (must match current simulation resolution)"))
+	int32 SimulationCheckpointResolution = 0;
+
 	// ========================================================================
 	// Emitter Noise Parameters
 	// ========================================================================
@@ -311,4 +340,16 @@ public:
 	float EmitterNoiseStrength = 0.2f;
 
 	virtual void UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance) override;
+
+	/**
+	 * @brief Capture current simulation state to checkpoint texture
+	 * @param CurrentSimulationTime  Current accumulated simulation time
+	 */
+	void CaptureSimulationCheckpoint(FString TargetAuroraName, float CurrentSimulationTime);
+
+	/**
+	 * @brief Check if checkpoint texture exists and can be restored
+	 * @return true if valid checkpoint exists
+	 */
+	bool HasValidCheckpoint() const;
 };

@@ -7,7 +7,7 @@
 #include "Input/Reply.h"
 
 
-class FSDFBakerCustomization : public IDetailCustomization
+class FDFBakerCustomization : public IDetailCustomization
 {
 
 public:
@@ -20,5 +20,5 @@ public:
 
 	FReply OnSaveAsButtonClicked();
 
-	class USplineSDFTextureBakerComponent* SelectedComponent = nullptr;
+	class USplineDFTextureBakerComponent* SelectedComponent = nullptr;
 };

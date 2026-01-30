@@ -1,9 +1,9 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
-#include "Components/SDFBakerComponentBase.h"
+#include "Components/DFBakerComponentBase.h"
 
 // Sets default values for this component's properties
-USDFBakerComponentBase::USDFBakerComponentBase()
+UDFBakerComponentBase::UDFBakerComponentBase()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
@@ -14,7 +14,7 @@ USDFBakerComponentBase::USDFBakerComponentBase()
 
 
 // Called when the game starts
-void USDFBakerComponentBase::BeginPlay()
+void UDFBakerComponentBase::BeginPlay()
 {
 	Super::BeginPlay();
 
@@ -24,7 +24,7 @@ void USDFBakerComponentBase::BeginPlay()
 
 
 // Called every frame
-void USDFBakerComponentBase::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UDFBakerComponentBase::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 

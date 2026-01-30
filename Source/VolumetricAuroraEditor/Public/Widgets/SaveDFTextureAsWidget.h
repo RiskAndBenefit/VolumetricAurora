@@ -6,16 +6,16 @@
 #include "Core/AuroraPresetManager.h"
 #include "Widgets/SCompoundWidget.h"
 
-class USplineSDFTextureBakerComponent;
+class USplineDFTextureBakerComponent;
 
-class VOLUMETRICAURORAEDITOR_API SSaveSDFTextureAsWidget : public SCompoundWidget
+class VOLUMETRICAURORAEDITOR_API SSaveDFTextureAsWidget : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SSaveSDFTextureAsWidget)
+	SLATE_BEGIN_ARGS(SSaveDFTextureAsWidget)
 		{
 		}
 		SLATE_ARGUMENT(TSharedPtr<SWindow>, ParentWindow)
-		SLATE_ARGUMENT(USplineSDFTextureBakerComponent*, BakerComponent)
+		SLATE_ARGUMENT(USplineDFTextureBakerComponent*, BakerComponent)
 	SLATE_END_ARGS()
 
 	/** Constructs this widget with InArgs */
@@ -32,7 +32,7 @@ public:
 	FReply OnCancelClicked();
 
 private:
-	USplineSDFTextureBakerComponent* BakerComponent;
+	USplineDFTextureBakerComponent* BakerComponent;
 
 	UAuroraPresetManager* PresetManager = nullptr;
 

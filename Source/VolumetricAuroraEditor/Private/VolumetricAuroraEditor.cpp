@@ -3,9 +3,9 @@
 #include "VolumetricAuroraEditor.h"
 #include "PropertyEditorModule.h"
 #include "Customizations/VolumetricAuroraDetailsCustomization.h"
-#include "Customizations/SDFBakerCustomization.h"
+#include "Customizations/DFBakerCustomization.h"
 #include "Actors/VolumetricAurora.h"
-#include "Components/SplineSDFTextureBakerComponent.h"
+#include "Components/SplineDFTextureBakerComponent.h"
 #include "Style/VolumetricAuroraStyle.h"
 
 #define LOCTEXT_NAMESPACE "FVolumetricAuroraEditorModule"
@@ -27,13 +27,13 @@ void FVolumetricAuroraEditorModule::StartupModule()
 	);
 
 	PropertyModule.RegisterCustomClassLayout(
-		USplineSDFTextureBakerComponent::StaticClass()->GetFName(),
-		FOnGetDetailCustomizationInstance::CreateStatic(&FSDFBakerCustomization::MakeInstance)
+		USplineDFTextureBakerComponent::StaticClass()->GetFName(),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FDFBakerCustomization::MakeInstance)
 	);
 
 	// Store class name for cleanup in ShutdownModule
 	RegisteredCustomizations.Add(AVolumetricAurora::StaticClass()->GetFName());
-	RegisteredCustomizations.Add(USplineSDFTextureBakerComponent::StaticClass()->GetFName());
+	RegisteredCustomizations.Add(USplineDFTextureBakerComponent::StaticClass()->GetFName());
 
 	UE_LOG(LogTemp, Log, TEXT("VolumetricAuroraEditor module started"));
 }

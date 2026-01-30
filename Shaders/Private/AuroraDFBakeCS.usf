@@ -14,7 +14,7 @@ StructuredBuffer<FAuroraSplineInfo> InSplines;
 int InSplineCount;
 float InMapSize;
 float2 InMapCenter;
-RWTexture2D<float> OutSDF;
+RWTexture2D<float> OutDF;
 
 float2 FindCubicBezier(float2 Point0, float2 Point1, float2 Point2, float2 Point3, float Alpha)
 {
@@ -51,7 +51,7 @@ void MainCS(uint3 id : SV_DispatchThreadID)
 {
     float2 TexSize;
     
-    OutSDF.GetDimensions(TexSize.x, TexSize.y);
+    OutDF.GetDimensions(TexSize.x, TexSize.y);
     
     float2 WorldPosXY = (id.xy / TexSize - 0.5) * InMapSize + InMapCenter;
     
@@ -84,5 +84,5 @@ void MainCS(uint3 id : SV_DispatchThreadID)
         }
 
     }
-    OutSDF[id.xy] = MinDist;
+    OutDF[id.xy] = MinDist;
 }

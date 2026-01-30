@@ -4,24 +4,24 @@
 
 
 #include "CoreMinimal.h"
-#include "Components/SDFBakerComponentBase.h"
+#include "Components/DFBakerComponentBase.h"
 #include "Components/SceneComponent.h"
 #include "Types/AuroraTypes.h"
-#include "SplineSDFTextureBakerComponent.generated.h"
+#include "SplineDFTextureBakerComponent.generated.h"
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent), HideCategories = (Rendering, Tags, Physics, LOD, Navigation, Cooking, Activation, AssetUserData))
-class VOLUMETRICAURORAEDITOR_API USplineSDFTextureBakerComponent : public USDFBakerComponentBase
+class VOLUMETRICAURORAEDITOR_API USplineDFTextureBakerComponent : public UDFBakerComponentBase
 {
 	GENERATED_BODY()
 
 public:	
 
-	USplineSDFTextureBakerComponent();
+	USplineDFTextureBakerComponent();
 	
 	UPROPERTY()
 	UStaticMeshComponent* BoundsVisualizer;
 
-	UPROPERTY(EditAnywhere, Category = "SDFBaker")
+	UPROPERTY(EditAnywhere, Category = "DFBaker")
 	bool bAlwaysShowDebugLine = false;
 
 	// Sets default values for this component's properties
@@ -32,11 +32,11 @@ public:
 
 	void AddSplineComponent();
 
-	void MakeSDFTexture(const FString& NewTextureName);
+	void MakeDFTexture(const FString& NewTextureName);
 
 	void SetBoundsVisualizerTransform();
 
-	void DispatchSDFBakeCS(const TArray<FVector4f>& SplinePoints, const TArray<FAuroraSplineInfo>& SplineInfos, const FString& NewTextureName);
+	void DispatchDFBakeCS(const TArray<FVector4f>& SplinePoints, const TArray<FAuroraSplineInfo>& SplineInfos, const FString& NewTextureName);
 
 	void UpdateVisualizerState();
 

@@ -1,22 +1,22 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
-#include "Customizations/SDFBakerCustomization.h"
-#include "Components/SplineSDFTextureBakerComponent.h"
-#include "Widgets/SaveSDFTextureAsWidget.h"
+#include "Customizations/DFBakerCustomization.h"
+#include "Components/SplineDFTextureBakerComponent.h"
+#include "Widgets/SaveDFTextureAsWidget.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailCategoryBuilder.h"
 #include "Data/AuroraPresetAsset.h"
 #include "DetailWidgetRow.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 
-TSharedRef<IDetailCustomization> FSDFBakerCustomization::MakeInstance()
+TSharedRef<IDetailCustomization> FDFBakerCustomization::MakeInstance()
 {
 	// Create shared pointer to customization instance
 	// Unreal used TSharedRef for automatic memory management
-	return MakeShareable(new FSDFBakerCustomization);
+	return MakeShareable(new FDFBakerCustomization);
 }
 
-void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
+void FDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
 {
 
 	TArray<TWeakObjectPtr<UObject>> CustomizedObjects;
@@ -24,16 +24,16 @@ void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilde
 
 	if (CustomizedObjects.Num() > 0)
 	{
-		SelectedComponent = Cast<USplineSDFTextureBakerComponent>(CustomizedObjects[0].Get());
+		SelectedComponent = Cast<USplineDFTextureBakerComponent>(CustomizedObjects[0].Get());
 	}
 	else
 	{
 		return;
 	}
 
-	IDetailCategoryBuilder& BakerCategory = DetailBuilder.EditCategory("SDFBaker");
+	IDetailCategoryBuilder& BakerCategory = DetailBuilder.EditCategory("DFBaker");
 
-	BakerCategory.AddCustomRow(FText::FromString("BakeSDFTexture"))
+	BakerCategory.AddCustomRow(FText::FromString("BakeDFTexture"))
 		.WholeRowContent()
 		[
 			SNew(SHorizontalBox)
@@ -42,8 +42,8 @@ void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilde
 				.HAlign(HAlign_Center)
 				[
 					SNew(SButton)
-					.Text(FText::FromString("Bake SDF Texture"))
-					.OnClicked(this, &FSDFBakerCustomization::OnSaveAsButtonClicked)
+					.Text(FText::FromString("Bake DF Texture"))
+					.OnClicked(this, &FDFBakerCustomization::OnSaveAsButtonClicked)
 					.VAlign(VAlign_Center)
 				]
 		];
@@ -58,7 +58,7 @@ void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilde
 
 					SNew(SButton)
 						.Text(FText::FromString("Add Spline Component"))
-						.OnClicked(this, &FSDFBakerCustomization::OnAddSplineComponentButtonClicked)
+						.OnClicked(this, &FDFBakerCustomization::OnAddSplineComponentButtonClicked)
 						.VAlign(VAlign_Center)
 				]
 			+ SHorizontalBox::Slot()
@@ -77,13 +77,13 @@ void FSDFBakerCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuilde
 		];
 }
 
-FReply FSDFBakerCustomization::OnAddSplineComponentButtonClicked()
+FReply FDFBakerCustomization::OnAddSplineComponentButtonClicked()
 {
 	SelectedComponent->AddSplineComponent();
 	return FReply::Handled();
 }
 
-FReply FSDFBakerCustomization::OnSaveAsButtonClicked()
+FReply FDFBakerCustomization::OnSaveAsButtonClicked()
 {
 
 	if (!SelectedComponent)
@@ -96,7 +96,7 @@ FReply FSDFBakerCustomization::OnSaveAsButtonClicked()
 		.SupportsMaximize(false)
 		.SupportsMinimize(false);
 
-	NewWindow->SetContent(SNew(SSaveSDFTextureAsWidget)
+	NewWindow->SetContent(SNew(SSaveDFTextureAsWidget)
 		.ParentWindow(NewWindow)
 		.BakerComponent(SelectedComponent));
 	

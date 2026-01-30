@@ -76,6 +76,12 @@ private:
 	 * Set force reset simulation flag to true
 	 */
 	FReply OnResetClicked();
+
+	/**
+	 * @brief Handle "Capture Checkpoint" button click
+	 * Captures current flow simulation state to checkpoint texture
+	 */
+	FReply OnCaptureCheckpointClicked();
 	
 	/**
 	 * @brief Handle "Edit Elements Map" button click

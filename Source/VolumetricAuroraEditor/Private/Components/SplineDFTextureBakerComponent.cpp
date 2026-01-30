@@ -1,16 +1,16 @@
 // Copyright (c) 2026 R&B. All rights reserved.
 
-#include "Components/SplineSDFTextureBakerComponent.h"
+#include "Components/SplineDFTextureBakerComponent.h"
 
 #include "Actors/VolumetricAurora.h"
-#include "Components/SDFBoundVisualizerComponent.h"
+#include "Components/DFBoundVisualizerComponent.h"
 #include "Components/AuroraSplineComponent.h"
 #include "Selection.h"
 #include "FileHelpers.h"
 #include "Components/SplineComponent.h"
 #include "RenderTargetPool.h"
 #include "RenderGraphUtils.h"
-#include "ComputeShaders/AuroraSDFBakeCS.h"
+#include "ComputeShaders/AuroraDFBakeCS.h"
 #include "Engine/TextureRenderTarget2D.h"
 
 #include "EditorViewportClient.h"
@@ -19,7 +19,7 @@
 
 
 // Sets default values for this component's properties
-USplineSDFTextureBakerComponent::USplineSDFTextureBakerComponent()
+USplineDFTextureBakerComponent::USplineDFTextureBakerComponent()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
@@ -30,7 +30,7 @@ USplineSDFTextureBakerComponent::USplineSDFTextureBakerComponent()
 	// ...
 }
 
-void USplineSDFTextureBakerComponent::FocusOnVisualizer()
+void USplineDFTextureBakerComponent::FocusOnVisualizer()
 {
 	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>("LevelEditor");
 	TSharedPtr<IAssetViewport> ActiveViewport = LevelEditorModule.GetFirstActiveViewport();
@@ -52,7 +52,7 @@ void USplineSDFTextureBakerComponent::FocusOnVisualizer()
 
 }
 
-void USplineSDFTextureBakerComponent::AddSplineComponent()
+void USplineDFTextureBakerComponent::AddSplineComponent()
 {
 	AActor* Owner = GetOwner();
 
@@ -93,7 +93,7 @@ void USplineSDFTextureBakerComponent::AddSplineComponent()
 	}
 }
 
-void USplineSDFTextureBakerComponent::MakeSDFTexture(const FString& NewTextureName)
+void USplineDFTextureBakerComponent::MakeDFTexture(const FString& NewTextureName)
 {
 	TArray<USplineComponent*> SplineComponents;
 
@@ -138,11 +138,11 @@ void USplineSDFTextureBakerComponent::MakeSDFTexture(const FString& NewTextureNa
 		SplinePoints.Add(FVector4f(LastLocation.X, LastLocation.Y, LastLocation.Z, 10.0f));
 	}
 
-	DispatchSDFBakeCS(SplinePoints, SplineInfos, NewTextureName);
+	DispatchDFBakeCS(SplinePoints, SplineInfos, NewTextureName);
 }
 
 
-void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>& SplinePoints, const TArray<FAuroraSplineInfo>& SplineInfos, const FString& NewTextureName)
+void USplineDFTextureBakerComponent::DispatchDFBakeCS(const TArray<FVector4f>& SplinePoints, const TArray<FAuroraSplineInfo>& SplineInfos, const FString& NewTextureName)
 {
 
 	AVolumetricAurora* Owner = Cast<AVolumetricAurora>(GetOwner());
@@ -151,30 +151,30 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 	{
 		return;
 	}
-	UTextureRenderTarget2D* SDFTextureRT = NewObject<UTextureRenderTarget2D>(this, NAME_None, RF_Transient);
+	UTextureRenderTarget2D* DFTextureRT = NewObject<UTextureRenderTarget2D>(this, NAME_None, RF_Transient);
 
-	SDFTextureRT->RenderTargetFormat = RTF_R16f;
-	SDFTextureRT->ClearColor = FLinearColor::Black;
-	SDFTextureRT->bAutoGenerateMips = false;
+	DFTextureRT->RenderTargetFormat = RTF_R16f;
+	DFTextureRT->ClearColor = FLinearColor::Black;
+	DFTextureRT->bAutoGenerateMips = false;
 
-	SDFTextureRT->AddressX = TA_Wrap;
-	SDFTextureRT->AddressY = TA_Wrap;
+	DFTextureRT->AddressX = TA_Wrap;
+	DFTextureRT->AddressY = TA_Wrap;
 
-	SDFTextureRT->bCanCreateUAV = true;
+	DFTextureRT->bCanCreateUAV = true;
 
 
-	SDFTextureRT->InitCustomFormat(512, 512, PF_R16F, true);
+	DFTextureRT->InitCustomFormat(512, 512, PF_R16F, true);
 
-	SDFTextureRT->UpdateResource();
+	DFTextureRT->UpdateResource();
 
-	if (!SDFTextureRT)
+	if (!DFTextureRT)
 	{
 		return;
 	}
 
-	FTextureRenderTargetResource* RTResource = SDFTextureRT->GameThread_GetRenderTargetResource();
+	FTextureRenderTargetResource* RTResource = DFTextureRT->GameThread_GetRenderTargetResource();
 
-	ENQUEUE_RENDER_COMMAND(BakeAuroraSDF) (
+	ENQUEUE_RENDER_COMMAND(BakeAuroraDF) (
 		[RTResource, SplinePoints, SplineInfos, CenterPosition = this->GetComponentLocation(), MapSize = this->MapSize](FRHICommandListImmediate& RHICmdList)
 		{
 			
@@ -185,7 +185,7 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 				CreateRenderTarget(TextureRHI, TEXT("AuroraTexture"))
 			);
 		
-			FRDGTextureUAVRef SDFUAV = GraphBuilder.CreateUAV(RDGTexture);
+			FRDGTextureUAVRef DFUAV = GraphBuilder.CreateUAV(RDGTexture);
 		
 			FRDGBufferRef PointBuffer = CreateStructuredBuffer(
 				GraphBuilder, TEXT("AuroraPointBuffer"), sizeof(FVector4f),
@@ -196,11 +196,11 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 				SplineInfos.Num(), SplineInfos.GetData(), sizeof(FAuroraSplineInfo) * SplineInfos.Num()
 			);
 	
-			auto* PassParameters = GraphBuilder.AllocParameters<FAuroraSDFBakeCS::FParameters>();
+			auto* PassParameters = GraphBuilder.AllocParameters<FAuroraDFBakeCS::FParameters>();
 			PassParameters->InPoints = GraphBuilder.CreateSRV(PointBuffer);
 			PassParameters->InSplines = GraphBuilder.CreateSRV(SplineBuffer);
 			PassParameters->InSplineCount = SplineInfos.Num();
-			PassParameters->OutSDF = SDFUAV;
+			PassParameters->OutDF = DFUAV;
 			PassParameters->InMapSize = MapSize;
 
 			FVector2f SnapPosition;
@@ -209,10 +209,10 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 			SnapPosition.Y = FMath::Floor(CenterPosition.Y / PixelWorldSize) * PixelWorldSize;
 			PassParameters->InMapCenter = SnapPosition;
 
-			TShaderMapRef<FAuroraSDFBakeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+			TShaderMapRef<FAuroraDFBakeCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 			FComputeShaderUtils::AddPass(
 				GraphBuilder,
-				RDG_EVENT_NAME("BakeAuroraSDF"),
+				RDG_EVENT_NAME("BakeAuroraDF"),
 				ComputeShader,
 				PassParameters,
 				FIntVector(FMath::DivideAndRoundUp(RTResource->GetSizeX(), (uint32)8), FMath::DivideAndRoundUp(RTResource->GetSizeY(), (uint32)8), 1)
@@ -226,7 +226,7 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 
 	FlushRenderingCommands();
 
-	FString TexturePath = Owner->GetPluginPath() + "/Textures/SDFTextures/" + NewTextureName;
+	FString TexturePath = Owner->GetPluginPath() + "/Textures/DFTextures/" + NewTextureName;
 
 	UTexture2D* TargetTexture = Cast<UTexture2D>(StaticLoadObject(UTexture2D::StaticClass(), nullptr, *TexturePath, nullptr, LOAD_NoWarn | LOAD_Quiet));
 
@@ -252,7 +252,7 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 		Package->FullyLoad();
 	}
 
-	UTexture2D* NewTexture = SDFTextureRT->ConstructTexture2D(Package, NewTextureName, RF_Public | RF_Standalone, CTF_Default);
+	UTexture2D* NewTexture = DFTextureRT->ConstructTexture2D(Package, NewTextureName, RF_Public | RF_Standalone, CTF_Default);
 
 	if (NewTexture)
 	{
@@ -282,7 +282,7 @@ void USplineSDFTextureBakerComponent::DispatchSDFBakeCS(const TArray<FVector4f>&
 }
 
 // Called when the game starts
-void USplineSDFTextureBakerComponent::BeginPlay()
+void USplineDFTextureBakerComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
@@ -290,18 +290,18 @@ void USplineSDFTextureBakerComponent::BeginPlay()
 	
 }
 
-void USplineSDFTextureBakerComponent::OnRegister()
+void USplineDFTextureBakerComponent::OnRegister()
 {
 	Super::OnRegister();
 	if (GEditor)
 	{
-		GEditor->GetSelectedActors()->SelectionChangedEvent.AddUObject(this, &USplineSDFTextureBakerComponent::OnSelectionChanged);
-		GEditor->GetSelectedComponents()->SelectionChangedEvent.AddUObject(this, &USplineSDFTextureBakerComponent::OnSelectionChanged);
+		GEditor->GetSelectedActors()->SelectionChangedEvent.AddUObject(this, &USplineDFTextureBakerComponent::OnSelectionChanged);
+		GEditor->GetSelectedComponents()->SelectionChangedEvent.AddUObject(this, &USplineDFTextureBakerComponent::OnSelectionChanged);
 	}
 
 	if (!BoundsVisualizer)
 	{
-		BoundsVisualizer = NewObject<USDFBoundVisualizerComponent>(GetOwner(), TEXT("BoundsVisualizer"));
+		BoundsVisualizer = NewObject<UDFBoundVisualizerComponent>(GetOwner(), TEXT("BoundsVisualizer"));
 
 		if (BoundsVisualizer)
 		{
@@ -317,7 +317,7 @@ void USplineSDFTextureBakerComponent::OnRegister()
 			BoundsVisualizer->SetCastShadow(false);
 			SetHiddenInGame(true);
 
-			UMaterial* WireframeMat = Cast<UMaterial>(StaticLoadObject(UMaterial::StaticClass(), nullptr, TEXT("/VolumetricAurora/Materials/WireframeMaterial")));
+			UMaterial* WireframeMat = Cast<UMaterial>(StaticLoadObject(UMaterial::StaticClass(), nullptr, TEXT("/VolumetricAurora/Materials/DFVisualizer/WireframeMaterial")));
 			if (WireframeMat)
 			{
 				BoundsVisualizer->SetMaterial(0, WireframeMat);
@@ -328,7 +328,7 @@ void USplineSDFTextureBakerComponent::OnRegister()
 	}
 }
 
-void USplineSDFTextureBakerComponent::OnUnregister()
+void USplineDFTextureBakerComponent::OnUnregister()
 {
 	Super::OnUnregister();
 	if (GEditor)
@@ -338,12 +338,12 @@ void USplineSDFTextureBakerComponent::OnUnregister()
 	}
 }
 
-void USplineSDFTextureBakerComponent::OnSelectionChanged(UObject* Selected)
+void USplineDFTextureBakerComponent::OnSelectionChanged(UObject* Selected)
 {
 	UpdateVisualizerState();
 }
 
-void USplineSDFTextureBakerComponent::UpdateVisualizerState()
+void USplineDFTextureBakerComponent::UpdateVisualizerState()
 {
 	if (BoundsVisualizer)
 	{
@@ -383,14 +383,14 @@ void USplineSDFTextureBakerComponent::UpdateVisualizerState()
 	}
 }
 
-void USplineSDFTextureBakerComponent::PostEditComponentMove(bool bFinished)
+void USplineDFTextureBakerComponent::PostEditComponentMove(bool bFinished)
 {
 	Super::PostEditComponentMove(bFinished);
 
 	SetBoundsVisualizerTransform();
 }
 
-void USplineSDFTextureBakerComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+void USplineDFTextureBakerComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 
@@ -399,7 +399,7 @@ void USplineSDFTextureBakerComponent::PostEditChangeProperty(FPropertyChangedEve
 	UpdateVisualizerState();
 }
 
-void USplineSDFTextureBakerComponent::SetBoundsVisualizerTransform()
+void USplineDFTextureBakerComponent::SetBoundsVisualizerTransform()
 {
 	if (BoundsVisualizer)
 	{
@@ -412,7 +412,7 @@ void USplineSDFTextureBakerComponent::SetBoundsVisualizerTransform()
 
 
 // Called every frame
-void USplineSDFTextureBakerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void USplineDFTextureBakerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
