@@ -47,6 +47,22 @@ public:
 	void OnPaintingComplete();
 
 	/**
+	 * @brief Refresh canvas display after Load() operation
+	 *
+	 * Called by C++ after Load() copies ShapeTexture to CurrentRenderTarget.
+	 * Blueprint should implement this to update Canvas RT (the render target
+	 * displayed in Canvas widget) with CurrentRenderTarget content.
+	 *
+	 * Typical implementation in Blueprint:
+	 * 1. Draw Material To Render Target (Canvas RT, Material copying CurrentRenderTarget)
+	 * 2. Or copy CurrentRenderTarget pixels directly to Canvas RT
+	 *
+	 * This ensures the visual canvas matches the loaded element map.
+	 */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Aurora Painter")
+	void RefreshCanvas();
+
+	/**
 	 * @brief Set preview render target to display in preview image
 	 *
 	 * Called from C++ (VolumetricAuroraDetailsCustomization) after:
@@ -65,20 +81,52 @@ public:
 	 * - DrawMaterialToRenderTarget execution
 	 * - Any modification to CurrentRenderTarget
 	 *
-	 * This updates the preview aurora's AuroraElementsMap and re-captures the scene.
+	 * This updates the preview aurora's ShapeTexture and re-captures the scene.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Aurora Painter")
 	void UpdatePreview();
 
 	/**
-	 * @brief Save current ElementsRenderTarget into the existing AuroraElementsMap asset.
+	 * @brief Load existing ShapeTexture into paint canvas
 	 *
-	 * This function updates the already assigned Texture2D (AuroraElementsMap) by overwriting its pixel data
+	 * Copies the current actor's ShapeTexture content to CurrentRenderTarget (paint canvas).
+	 * This allows users to load and edit existing element maps.
+	 *
+	 * Workflow:
+	 * 1. Validate TargetAurora and CurrentRenderTarget exist
+	 * 2. Get PotentialFlowAuroraPreset from TargetAurora
+	 * 3. If ShapeTexture exists, copy it to canvas using GPU-based material rendering
+	 * 4. If ShapeTexture is null, clear canvas to black (default empty state)
+	 *
+	 * Use cases:
+	 * - User clicks "Load from Element Map" button to sync canvas with current map
+	 * - Auto-load when paint window opens (optional)
+	 * - Reset canvas to original element map after mistakes
+	 *
+	 * @note This function only works with PotentialFlowAuroraPreset.
+	 *       NoiseAuroraPreset and SplineAuroraPreset use ShapeTexture differently.
+	 *
+	 * @note If ShapeTexture is null, the canvas will be cleared to black instead of failing.
+	 *       This provides a clean starting point for painting new element maps.
+	 *
+	 * @warning Requires M_Copy material to exist at /VolumetricAurora/Materials/M_Copy.
+	 *          The material should have a TextureSampleParameter2D named "SourceTexture".
+	 *
+	 * @see Save() for reverse operation (canvas → texture)
+	 * @see SaveAs() for creating new texture from canvas
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora Painter")
+	void Load();
+
+	/**
+	 * @brief Save current ElementsRenderTarget into the existing ShapeTexture asset.
+	 *
+	 * This function updates the already assigned Texture2D (ShapeTexture) by overwriting its pixel data
 	 * with the current painter render target.
 	 *
 	 * Workflow:
 	 * 1. Validate TargetAurora, CurrentRenderTarget, and flow preset
-	 * 2. If AuroraElementsMap is null, fallback to SaveAs()
+	 * 2. If ShapeTexture is null, fallback to SaveAs()
 	 * 3. Read pixels from CurrentRenderTarget (GPU -> CPU)
 	 * 4. Load the existing Texture2D asset and overwrite its Source mip0
 	 * 5. Mark package dirty and save package to disk
@@ -98,7 +146,7 @@ public:
 	 * 2. Create new Texture2D asset in Plugin Content folder
 	 * 3. Copy pixel data to Texture2D
 	 * 4. Save asset to disk
-	 * 5. Auto-assign to TargetAurora's AuroraElementsMap
+	 * 5. Auto-assign to TargetAurora's ShapeTexture
 	 *
 	 * Asset location: /VolumetricAurora/Textures/FlowElementMaps/
 	 * Naming: T_AuroraElements_{ActorName}_{TimeStamp}.uasset

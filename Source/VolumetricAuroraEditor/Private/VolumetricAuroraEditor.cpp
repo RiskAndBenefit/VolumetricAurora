@@ -4,8 +4,10 @@
 #include "PropertyEditorModule.h"
 #include "Customizations/VolumetricAuroraDetailsCustomization.h"
 #include "Customizations/DFBakerCustomization.h"
+#include "Customizations/AuroraFlowElementCustomization.h"
 #include "Actors/VolumetricAurora.h"
 #include "Components/SplineDFTextureBakerComponent.h"
+#include "Types/AuroraFlowElement.h"
 #include "Style/VolumetricAuroraStyle.h"
 
 #define LOCTEXT_NAMESPACE "FVolumetricAuroraEditorModule"
@@ -31,9 +33,17 @@ void FVolumetricAuroraEditorModule::StartupModule()
 		FOnGetDetailCustomizationInstance::CreateStatic(&FDFBakerCustomization::MakeInstance)
 	);
 
+	// Register custom property type layout for FAuroraFlowElement struct
+	// This customization adds a collapsible "Advanced" section to each array element
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		FAuroraFlowElement::StaticStruct()->GetFName(),
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FAuroraFlowElementCustomization::MakeInstance)
+	);
+
 	// Store class name for cleanup in ShutdownModule
 	RegisteredCustomizations.Add(AVolumetricAurora::StaticClass()->GetFName());
 	RegisteredCustomizations.Add(USplineDFTextureBakerComponent::StaticClass()->GetFName());
+	RegisteredCustomizations.Add(FAuroraFlowElement::StaticStruct()->GetFName());
 
 	UE_LOG(LogTemp, Log, TEXT("VolumetricAuroraEditor module started"));
 }
@@ -48,6 +58,7 @@ void FVolumetricAuroraEditorModule::ShutdownModule()
 		for (const FName& ClassName : RegisteredCustomizations)
 		{
 			PropertyModule.UnregisterCustomClassLayout(ClassName);
+			PropertyModule.UnregisterCustomPropertyTypeLayout(ClassName);
 		}
 	}
 

@@ -4,11 +4,13 @@
 #include "Widgets/SaveFlowElementMapAsWidget.h"
 
 #include "Actors/VolumetricAurora.h"
+#include "Data/AuroraPresetAsset.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
 #include "Misc/MessageDialog.h"
 #include "HAL/FileManager.h"
+#include "Kismet/KismetRenderingLibrary.h"
 
 void UAuroraElementsPainterWidget::SetPreviewRenderTarget(UTextureRenderTarget2D* RenderTarget)
 {
@@ -46,18 +48,165 @@ void UAuroraElementsPainterWidget::UpdatePreview()
 	TargetAurora->UpdatePreviewAurora();
 }
 
+void UAuroraElementsPainterWidget::Load()
+{
+	// Helper lambda to show error dialog with user-friendly message
+	auto ShowErrorDialog = [](const FString& UserMessage, const FString& LogMessage)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Load: %s"), *LogMessage);
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(UserMessage));
+	};
+
+	// Helper lambda to show info dialog
+	auto ShowInfoDialog = [](const FString& UserMessage, const FString& LogMessage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Load: %s"), *LogMessage);
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(UserMessage));
+	};
+
+	// ========================================================================
+	// Step 1: Validate paint canvas exists
+	// ========================================================================
+
+	// CurrentRenderTarget is the canvas where users paint aurora elements.
+	// If it doesn't exist, we can't load anything into it.
+	if (!CurrentRenderTarget)
+	{
+		ShowErrorDialog(
+			TEXT("Failed to load: Canvas is not initialized.\nPlease reopen the Element Map editor."),
+			TEXT("CurrentRenderTarget is null. Cannot load to canvas.")
+		);
+		return;
+	}
+
+	// ========================================================================
+	// Step 2: Validate TargetAurora exists
+	// ========================================================================
+
+	if (!TargetAurora)
+	{
+		ShowErrorDialog(
+			TEXT("Failed to load: Aurora actor not found.\nPlease ensure the actor is properly initialized."),
+			TEXT("TargetAurora is null")
+		);
+		return;
+	}
+
+	// ========================================================================
+	// Step 3: Get PotentialFlowAuroraPreset from TargetAurora
+	// ========================================================================
+
+	// Only PotentialFlowAuroraPreset uses ShapeTexture as element map.
+	// NoiseAuroraPreset and SplineAuroraPreset use ShapeTexture differently.
+	UPotentialFlowAuroraPreset* FlowPreset =
+		Cast<UPotentialFlowAuroraPreset>(TargetAurora->TargetAurora);
+	if (!FlowPreset)
+	{
+		ShowErrorDialog(
+			TEXT("Failed to load: This preset type doesn't support Element Maps.\nOnly Potential Flow Aurora presets can be edited."),
+			TEXT("TargetAurora is not PotentialFlowAuroraPreset. Element map editing is only supported for Flow presets.")
+		);
+		return;
+	}
+
+	// ========================================================================
+	// Step 4: Check if ShapeTexture exists
+	// ========================================================================
+
+	// ShapeTexture contains the aurora element map (particle emission regions).
+	// If it's null, we clear the canvas instead of copying.
+	if (!FlowPreset->ShapeTexture)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Load: ShapeTexture is null. Clearing canvas to black instead."));
+
+		// Clear canvas to default black color (no emission)
+		UKismetRenderingLibrary::ClearRenderTarget2D(
+			this,
+			CurrentRenderTarget,
+			FLinearColor::Black
+		);
+
+		ShowInfoDialog(
+			TEXT("No existing Element Map found.\nCanvas cleared to black (empty state)."),
+			TEXT("ShapeTexture is null. Canvas cleared to black.")
+		);
+		return;
+	}
+
+	// ========================================================================
+	// Step 5: Copy ShapeTexture to CurrentRenderTarget using material
+	// ========================================================================
+
+	// We can't directly copy texture data in UE5 without GPU involvement.
+	// Instead, we use a simple material that samples the source texture
+	// and draws it to the render target.
+
+	// Create dynamic material instance configured to copy ShapeTexture
+	UMaterialInstanceDynamic* CopyMaterial =
+		TargetAurora->CreateSimpleMaterialForTextureCopy(FlowPreset->ShapeTexture);
+
+	if (!CopyMaterial)
+	{
+		ShowErrorDialog(
+			TEXT("Failed to load: Cannot create material for texture copy.\n\nPlease ensure M_Copy material exists at:\n/VolumetricAurora/Materials/M_Copy\n\nThe material should have a TextureSampleParameter2D named 'SourceTexture' connected to Emissive Color."),
+			TEXT("Failed to create copy material. Check M_Copy material exists in plugin.")
+		);
+		return;
+	}
+
+	// Draw the copy material to CurrentRenderTarget
+	// This effectively copies ShapeTexture pixel data to the canvas
+	UKismetRenderingLibrary::DrawMaterialToRenderTarget(
+		this,
+		CurrentRenderTarget,
+		CopyMaterial
+	);
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("Load: Successfully loaded ShapeTexture '%s' to canvas"),
+		*FlowPreset->ShapeTexture->GetName()
+	);
+
+	// ========================================================================
+	// Step 6: Refresh Canvas RT (Blueprint implementation)
+	// ========================================================================
+
+	// CRITICAL: WBP uses separate Canvas RT for display!
+	// CurrentRenderTarget is updated above, but Canvas RT (shown in Canvas widget)
+	// needs to be refreshed with CurrentRenderTarget content.
+	// Blueprint implements this to copy CurrentRenderTarget → Canvas RT.
+	RefreshCanvas();
+
+	// Note: No success dialog shown - visual feedback from canvas update is sufficient
+}
+
 void UAuroraElementsPainterWidget::Save()
 {
+	// Helper lambda to show error dialog with user-friendly message
+	auto ShowErrorDialog = [](const FString& UserMessage, const FString& LogMessage)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Save: %s"), *LogMessage);
+		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(UserMessage));
+	};
+
 	// Validate prerequisites
 	if (!TargetAurora)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: TargetAurora is null"));
+		ShowErrorDialog(
+			TEXT("Failed to save: Aurora actor not found.\nPlease ensure the actor is properly initialized."),
+			TEXT("TargetAurora is null")
+		);
 		return;
 	}
 
 	if (!CurrentRenderTarget)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: CurrentRenderTarget is null"))
+		ShowErrorDialog(
+			TEXT("Failed to save: Canvas is not initialized.\nPlease reopen the Element Map editor."),
+			TEXT("CurrentRenderTarget is null")
+		);
 		return;
 	}
 
@@ -65,18 +214,22 @@ void UAuroraElementsPainterWidget::Save()
 		Cast<UPotentialFlowAuroraPreset>(TargetAurora->TargetAurora);
 	if (!FlowPreset)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Aurora preset is null or is not flow type"));
+		ShowErrorDialog(
+			TEXT("Failed to save: This preset type doesn't support Element Maps.\nOnly Potential Flow Aurora presets can be edited."),
+			TEXT("Aurora preset is null or is not flow type")
+		);
 		return;
 	}
 
 	// If no existing map, Save() cannot overwrite -> create a new one.
-	if (!FlowPreset->AuroraElementsMap)
+	if (!FlowPreset->ShapeTexture)
 	{
 		UE_LOG(
 			LogTemp,
 			Warning,
-			TEXT("Save: AuroraElementsMap is null. Falling back to SaveAs().")
+			TEXT("Save: ShapeTexture is null. Falling back to SaveAs().")
 		);
+		
 		SaveAs();
 		return;
 	}
@@ -89,23 +242,32 @@ void UAuroraElementsPainterWidget::Save()
 	FTextureRenderTargetResource* RTResource = RT->GameThread_GetRenderTargetResource();
 	if (!RTResource)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Failed to get RenderTarget resource"));
+		ShowErrorDialog(
+			TEXT("Failed to save: Cannot access canvas render data.\nThe canvas may not be fully initialized. Try reopening the editor."),
+			TEXT("Failed to get RenderTarget resource")
+		);
 		return;
 	}
 
 	// ReadPixels is a blocking call (flushes GPU work for readback).
 	if (!RTResource->ReadPixels(SurfaceData))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Failed to read pixels from RenderTarget"));
+		ShowErrorDialog(
+			TEXT("Failed to save: Cannot read pixel data from canvas.\nThis may be a GPU access issue. Try saving again."),
+			TEXT("Failed to read pixels from RenderTarget")
+		);
 		return;
 	}
 
 	// Load existing Texture2D asset correctly
-	// AuroraElementsMap may be UTexture or UTexture2D.
-	UTexture2D* ExistingTexture = Cast<UTexture2D>(FlowPreset->AuroraElementsMap);
+	// ShapeTexture may be UTexture or UTexture2D.
+	UTexture2D* ExistingTexture = Cast<UTexture2D>(FlowPreset->ShapeTexture);
 	if (!ExistingTexture)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: AuroraElementsMap is not a Texture2D (cannot overwrite source pixels)."));
+		ShowErrorDialog(
+			TEXT("Failed to save: The Element Map is not a valid Texture2D asset.\nIt cannot be overwritten. Use 'Save As' to create a new texture."),
+			TEXT("ShapeTexture is not a Texture2D (cannot overwrite source pixels)")
+		);
 		return;
 	}
 
@@ -115,7 +277,7 @@ void UAuroraElementsPainterWidget::Save()
 		UE_LOG(LogTemp, Warning,
 			TEXT("Save: Size mismatch. Texture=%dx%d, RT=%dx%d. Recreating asset via SaveAs()."),
 			ExistingTexture->GetSizeX(), ExistingTexture->GetSizeY(), RT->SizeX, RT->SizeY);
-
+		
 		SaveAs();
 		return;
 	}
@@ -124,7 +286,10 @@ void UAuroraElementsPainterWidget::Save()
 	UPackage* Package = ExistingTexture->GetOutermost();
 	if (!Package)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Failed to get outermost package from existing texture."));
+		ShowErrorDialog(
+			TEXT("Failed to save: Cannot access the texture's package.\nThe texture asset may be corrupted."),
+			TEXT("Failed to get outermost package from existing texture")
+		);
 		return;
 	}
 
@@ -140,7 +305,10 @@ void UAuroraElementsPainterWidget::Save()
 	uint8* MipData = ExistingTexture->Source.LockMip(0);
 	if (!MipData)
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Failed to lock mip0 for writing."));
+		ShowErrorDialog(
+			TEXT("Failed to save: Cannot lock texture for editing.\nThe texture may be in use or corrupted."),
+			TEXT("Failed to lock mip0 for writing")
+		);
 		return;
 	}
 
@@ -150,7 +318,10 @@ void UAuroraElementsPainterWidget::Save()
 	if (SourceBytes < ExpectedBytes)
 	{
 		ExistingTexture->Source.UnlockMip(0);
-		UE_LOG(LogTemp, Error, TEXT("Save: SurfaceData size is smaller than expected."));
+		ShowErrorDialog(
+			TEXT("Failed to save: Canvas data size mismatch.\nExpected size doesn't match actual canvas size."),
+			TEXT("SurfaceData size is smaller than expected")
+		);
 		return;
 	}
 
@@ -210,10 +381,20 @@ void UAuroraElementsPainterWidget::Save()
 	if (SaveResult.Result == ESavePackageResult::Success)
 	{
 		UE_LOG(LogTemp, Log, TEXT("Save: Overwrote existing texture successfully: %s"), *PackageName);
+		FMessageDialog::Open(
+			EAppMsgType::Ok,
+			FText::FromString(TEXT("Element Map saved successfully!"))
+		);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("Save: Failed to save package: %s"), *PackageName);
+		ShowErrorDialog(
+			FString::Printf(
+				TEXT("Failed to save: Cannot write texture file to disk.\nCheck file permissions and disk space.\n\nPackage: %s"),
+				*PackageName
+			),
+			FString::Printf(TEXT("Failed to save package: %s"), *PackageName)
+		);
 	}
 }
 

@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 R&B. All rights reserved.
+// Copyright (c) 2026 R&B. All rights reserved.
 
 #include "Customizations/VolumetricAuroraDetailsCustomization.h"
 #include "Actors/VolumetricAurora.h"
@@ -74,7 +74,7 @@ void FVolumetricAuroraDetailsCustomization::CustomizeDetails(IDetailLayoutBuilde
 	AssetRegistry.Get().OnAssetRemoved().AddSP(this, &FVolumetricAuroraDetailsCustomization::OnPresetRemoved);
 
 	IDetailCategoryBuilder& AuroraCategory = DetailBuilder.EditCategory("Aurora");
-	
+
 	const FSlateBrush* NewPresetBrush = FAppStyle::GetBrush(TEXT("MainFrame.NewProject"));
 	const FSlateBrush* SaveBrush = FAppStyle::GetBrush(TEXT("AssetEditor.SaveAsset"));
 	const FSlateBrush* SaveAsBrush = FAppStyle::GetBrush(TEXT("AssetEditor.SaveAssetAs"));
@@ -89,21 +89,21 @@ void FVolumetricAuroraDetailsCustomization::CustomizeDetails(IDetailLayoutBuilde
 				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnNewAuroraPresetButtonClicked)
 				[
 					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					[
-						SNew(SImage)
-						.Image(NewPresetBrush)
-					]
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
-					[
-						SNew(STextBlock)
-						.Text(FText::FromString("New Aurora Preset"))
-					]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SImage)
+								.Image(NewPresetBrush)
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
+						[
+							SNew(STextBlock)
+								.Text(FText::FromString("New Aurora Preset"))
+						]
 				]
 		];
 
@@ -111,153 +111,142 @@ void FVolumetricAuroraDetailsCustomization::CustomizeDetails(IDetailLayoutBuilde
 		.WholeRowContent()
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.f)
-			.Padding(0.f, 0.f, 1.f, 0.f)
-			[
-				/* Save Button */
-				SNew(SButton)
-				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnSaveAuroraPresetButtonClicked)
-				.HAlign(HAlign_Center)
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.f)
+				.Padding(0.f, 0.f, 1.f, 0.f)
 				[
-					SNew(SHorizontalBox)
+					/* Save Button */
+					SNew(SButton)
+						.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnSaveAuroraPresetButtonClicked)
+						.HAlign(HAlign_Center)
+						[
+							SNew(SHorizontalBox)
 
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					[
-						SNew(SImage)
-						.Image(SaveBrush)
-					]
+								+ SHorizontalBox::Slot()
+								.AutoWidth()
+								.VAlign(VAlign_Center)
+								[
+									SNew(SImage)
+										.Image(SaveBrush)
+								]
 
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
-					[
-						SNew(STextBlock)
-						.Text(FText::FromString("Save"))
-					]
+								+ SHorizontalBox::Slot()
+								.AutoWidth()
+								.VAlign(VAlign_Center)
+								.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
+								[
+									SNew(STextBlock)
+										.Text(FText::FromString("Save"))
+								]
+						]
 				]
-			]
 
 			+ SHorizontalBox::Slot()
-			.FillWidth(1.f)
-			[
-				/* SaveAs Button */
-				SNew(SButton)
-				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnSaveAsAuroraPresetButtonClicked)
-				.HAlign(HAlign_Center)
+				.FillWidth(1.f)
 				[
-					SNew(SHorizontalBox)
+					/* SaveAs Button */
+					SNew(SButton)
+						.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnSaveAsAuroraPresetButtonClicked)
+						.HAlign(HAlign_Center)
+						[
+							SNew(SHorizontalBox)
 
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					[
-						SNew(SImage)
-						.Image(SaveAsBrush)
-					]
+								+ SHorizontalBox::Slot()
+								.AutoWidth()
+								.VAlign(VAlign_Center)
+								[
+									SNew(SImage)
+										.Image(SaveAsBrush)
+								]
 
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
-					.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
-					[
-						SNew(STextBlock)
-						.Text(FText::FromString("Save As..."))
-					]
+								+ SHorizontalBox::Slot()
+								.AutoWidth()
+								.VAlign(VAlign_Center)
+								.Padding(FMargin(6.f, 0.f, 0.f, 0.f))
+								[
+									SNew(STextBlock)
+										.Text(FText::FromString("Save As..."))
+								]
+						]
 				]
-			]
 		];
-	
-	// // Add custom UI to "Aurora|Preset Details|Flow" category
-	// IDetailCategoryBuilder& FlowCategory = DetailBuilder.EditCategory(
-	// 	TEXT("Aurora|PresetDetails|Flow"),
-	// 	FText::GetEmpty(),
-	// 	ECategoryPriority::Important
-	// );
-
-	// Add "Reset Simulation" button
-	AuroraCategory.AddCustomRow(LOCTEXT("ResetSimulation", "Reset Simulation"))
-	.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
-	{
-		return IsPotentialFlowPresetSelected()
-			? EVisibility::Visible
-			: EVisibility::Collapsed;
-	}))
-	.NameContent()
-	[
-		// Left side: Label
-		SNew(STextBlock)
-		.Text(LOCTEXT("ResetSimulationLabel", "Force Reset Flow"))
-		.Font(IDetailLayoutBuilder::GetDetailFont())
-	]
-	.ValueContent()
-	[
-		SNew(SButton)
-		.Text(LOCTEXT("ResetBtn", "Reset Flow"))
-		.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnResetClicked)
-	];
-
-	// Add "Capture Checkpoint" button
-	AuroraCategory.AddCustomRow(LOCTEXT("CaptureCheckpoint", "Capture Checkpoint"))
-	.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
-	{
-		return IsPotentialFlowPresetSelected()
-		? EVisibility::Visible
-		: EVisibility::Collapsed;
-	}))
-	.NameContent()
-	[
-		// Left side: Label
-		SNew(STextBlock)
-		.Text(LOCTEXT("CaptureCheckpointLabel", "Simulation Checkpoint"))
-		.Font(IDetailLayoutBuilder::GetDetailFont())
-	]
-	.ValueContent()
-	[
-		SNew(SButton)
-		.Text(LOCTEXT("CaptureBtn", "Capture Current State"))
-		.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnCaptureCheckpointClicked)
-	];
-
-	// Add "Edit Elements Map" button
-	AuroraCategory.AddCustomRow(LOCTEXT("EditElementRow", "Edit Elements Map"))
-	.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
-	{
-		return IsPotentialFlowPresetSelected()
-			? EVisibility::Visible
-			: EVisibility::Collapsed;
-	}))
-	.NameContent()
-	[
-		// Left side: Label
-		SNew(STextBlock)
-		.Text(LOCTEXT("EditElementsLabel", "Paint Elements Map"))
-		.Font(IDetailLayoutBuilder::GetDetailFont())
-	]
-	.ValueContent()
-	[
-		// Right side: Button
-		SNew(SButton)
-		.Text(LOCTEXT("EditElementsButton", "Edit Elements Map"))
-		.ToolTipText(LOCTEXT("EditElementsTooltip",
-			"Open texture paint mode to edit aurora elements. \n"
-			"R channel = Emitter regions\n"
-			"G channel = Fade zones"))
-		.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked)
-		// Only enable button if PotentialFlowPreset is selected
-		.IsEnabled(this, &FVolumetricAuroraDetailsCustomization::IsPotentialFlowPresetSelected)
-	];
-
-	// 프리셋 커스텀 UI 관련 (추후 완성 시 주석 해제)
-	/*DetailBuilder.HideProperty(
-		GET_MEMBER_NAME_CHECKED(AVolumetricAurora, CurrentPresetName));*/
 
 	BuildPresetOptions();
 	CreatePresetListView();
 	BuildAuroraPresetSection(DetailBuilder);
+
+	// Add "Reset Simulation" button
+	AuroraCategory.AddCustomRow(LOCTEXT("ResetSimulation", "Reset Simulation"))
+		.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+			{
+				return IsPotentialFlowPresetSelected()
+					? EVisibility::Visible
+					: EVisibility::Collapsed;
+			}))
+		.NameContent()
+		[
+			// Left side: Label
+			SNew(STextBlock)
+				.Text(LOCTEXT("ResetSimulationLabel", "Force Reset Flow"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		[
+			SNew(SButton)
+				.Text(LOCTEXT("ResetBtn", "Reset Flow"))
+				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnResetClicked)
+		];
+
+	// Add "Capture Checkpoint" button
+	AuroraCategory.AddCustomRow(LOCTEXT("CaptureCheckpoint", "Capture Checkpoint"))
+		.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+			{
+				return IsPotentialFlowPresetSelected()
+					? EVisibility::Visible
+					: EVisibility::Collapsed;
+			}))
+		.NameContent()
+		[
+			// Left side: Label
+			SNew(STextBlock)
+				.Text(LOCTEXT("CaptureCheckpointLabel", "Simulation Checkpoint"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		[
+			SNew(SButton)
+				.Text(LOCTEXT("CaptureBtn", "Capture Current State"))
+				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnCaptureCheckpointClicked)
+		];
+
+	// Add "Edit Elements Map" button
+	AuroraCategory.AddCustomRow(LOCTEXT("EditElementRow", "Edit Elements Map"))
+		.Visibility(TAttribute<EVisibility>::CreateLambda([this]()
+			{
+				return IsPotentialFlowPresetSelected()
+					? EVisibility::Visible
+					: EVisibility::Collapsed;
+			}))
+		.NameContent()
+		[
+			// Left side: Label
+			SNew(STextBlock)
+				.Text(LOCTEXT("EditElementsLabel", "Paint Elements Map"))
+				.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		[
+			// Right side: Button
+			SNew(SButton)
+				.Text(LOCTEXT("EditElementsButton", "Edit Elements Map"))
+				.ToolTipText(LOCTEXT("EditElementsTooltip",
+					"Open texture paint mode to edit aurora elements. \n"
+					"R channel = Emitter regions\n"
+					"G channel = Fade zones"))
+				.OnClicked(this, &FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked)
+				// Only enable button if PotentialFlowPreset is selected
+				.IsEnabled(this, &FVolumetricAuroraDetailsCustomization::IsPotentialFlowPresetSelected)
+		];
 }
 
 void FVolumetricAuroraDetailsCustomization::OnPresetRemoved(const FAssetData& AssetData)
@@ -307,7 +296,7 @@ FReply FVolumetricAuroraDetailsCustomization::OnResetClicked()
 	}
 
 	AVolumetricAurora* Aurora = SelectedAuroras[0].Get();
-	
+
 	Aurora->ResetFlowSimulation();
 	return FReply::Handled();
 }
@@ -391,7 +380,7 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 	 * 3. UpdatePreviewAurora: Initial capture to populate preview image
 	 */
 
-	// Create preview aurora actor
+	 // Create preview aurora actor
 	AVolumetricAurora* PreviewAurora = Aurora->CreatePreviewAurora();
 	if (!PreviewAurora)
 	{
@@ -596,7 +585,7 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 	 */
 	Aurora->EditorPaintWindow = SNew(SWindow)
 		.Title(FText::FromString(TEXT("Edit Elements Map")))
-		.ClientSize(FVector2D(2048.f, 2048.f))
+		.ClientSize(FVector2D(1600.f, 900.f))
 		.SupportsMaximize(true)
 		.SupportsMinimize(true)
 		.SizingRule(ESizingRule::UserSized);
@@ -652,91 +641,91 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 	 * ┌─────────────────────────┬──────────────────────────────┐
 	 * │   Preview Viewport      │                              │
 	 * │   (Top 50%)             │   Painter Widget             │
-	 * ├─────────────────────────┤   (Right 60%)                │
+	 * ├─────────────────────────┤   (Right 70%)                │
 	 * │   Details Panel         │                              │
 	 * │   (Bottom 50%)          │                              │
 	 * └─────────────────────────┴──────────────────────────────┘
-	 *        Left 40%
+	 *        Left 30%
 	 */
 	Aurora->EditorPaintWindow->SetContent(
 		SNew(SSplitter)
 		.Orientation(Orient_Horizontal)  // Outer: Horizontal split
 
 		// ====================================================================
-		// Left Region (40%): Split vertically again
+		// Left Region (30%): Split vertically again
 		// ====================================================================
-		+ SSplitter::Slot()
-		.Value(0.4f)
+		+SSplitter::Slot()
+		.Value(0.3f)
 		[
 			SNew(SSplitter)
-			.Orientation(Orient_Vertical)  // Inner: Vertical split
+				.Orientation(Orient_Vertical)  // Inner: Vertical split
 
-			// ----------------------------------------------------------------
-			// Left Top (50%): Preview Viewport
-			// ----------------------------------------------------------------
-			+ SSplitter::Slot()
-			.Value(0.5f)
-			[
-				SNew(SScaleBox)
-				.Stretch(EStretch::ScaleToFit)
+				// ----------------------------------------------------------------
+				// Left Top (50%): Preview Viewport
+				// ----------------------------------------------------------------
+				+SSplitter::Slot()
+				.Value(0.5f)
 				[
-					SNew(SBox)
-					.WidthOverride(2048.f)
-					.HeightOverride(2048.f)
-					[
-						Aurora->EditorPreviewViewport.ToSharedRef()
-					]
+					SNew(SScaleBox)
+						.Stretch(EStretch::ScaleToFit)
+						[
+							SNew(SBox)
+								.WidthOverride(2048.f)
+								.HeightOverride(2048.f)
+								[
+									Aurora->EditorPreviewViewport.ToSharedRef()
+								]
+						]
 				]
-			]
 
 			// ----------------------------------------------------------------
 			// Left Bottom (50%): Aurora Detail Panel
 			// ----------------------------------------------------------------
-			+ SSplitter::Slot()
-			.Value(0.5f)
-			[
-				SNew(SBox)
-				.Padding(4.f)  // Add padding
+			+SSplitter::Slot()
+				.Value(0.5f)
 				[
-					SNew(SBorder)
-					.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-					.Padding(4.f)
-					[
-						SNew(SVerticalBox)
-
-						// Header Title
-						+ SVerticalBox::Slot()
-						.AutoHeight()
-						.Padding(0, 0, 0, 4)
+					SNew(SBox)
+						.Padding(4.f)  // Add padding
 						[
-							SNew(STextBlock)
-							.Text(LOCTEXT("AuroraPropertiesHeader", "Aurora Properties"))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
-						]
+							SNew(SBorder)
+								.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
+								.Padding(4.f)
+								[
+									SNew(SVerticalBox)
 
-						// Detail View (Scrollable Area)
-						+ SVerticalBox::Slot()
-						.FillHeight(1.f)
-						[
-							EmbeddedDetailsWidget
+										// Header Title
+										+ SVerticalBox::Slot()
+										.AutoHeight()
+										.Padding(0, 0, 0, 4)
+										[
+											SNew(STextBlock)
+												.Text(LOCTEXT("AuroraPropertiesHeader", "Aurora Properties"))
+												.Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+										]
+
+										// Detail View (Scrollable Area)
+										+ SVerticalBox::Slot()
+										.FillHeight(1.f)
+										[
+											EmbeddedDetailsWidget
+										]
+								]
 						]
-					]
 				]
-			]
 		]
 
-		// ====================================================================
-		// Right Region (60%): Texture Painter Widget
-		// ====================================================================
-		+ SSplitter::Slot()
-		.Value(0.6f)
+	// ====================================================================
+	// Right Region (70%): Texture Painter Widget
+	// ====================================================================
+	+SSplitter::Slot()
+		.Value(0.7f)
 		[
 			SNew(SBox)
-			[
-				PainterSlateWidget
-			]
+				[
+					PainterSlateWidget
+				]
 		]
-	);
+		);
 
 	// ============================================================
 	// Step 11: Register window close callback
@@ -761,45 +750,45 @@ FReply FVolumetricAuroraDetailsCustomization::OnEditElementsMapClicked()
 	 */
 	Aurora->EditorPaintWindow->SetOnWindowClosed(
 		FOnWindowClosed::CreateLambda([WeakAurora](const TSharedRef<SWindow>& ClosedWindow) mutable
-		{
-			// Skip deferred cleanup if editor is shutting down
-			if (!GEditor || IsEngineExitRequested())
 			{
-				// Perform immediate cleanup without deferring
-				if (WeakAurora.IsValid())
+				// Skip deferred cleanup if editor is shutting down
+				if (!GEditor || IsEngineExitRequested())
 				{
-					AVolumetricAurora* AuroraPtr = WeakAurora.Get();
-					AuroraPtr->EditorPreviewViewport.Reset();
-					AuroraPtr->DestroyPreviewAurora();
-					AuroraPtr->EditorPaintWindow.Reset();
-					AuroraPtr->EditorPaintWidgetInstance = nullptr;
+					// Perform immediate cleanup without deferring
+					if (WeakAurora.IsValid())
+					{
+						AVolumetricAurora* AuroraPtr = WeakAurora.Get();
+						AuroraPtr->EditorPreviewViewport.Reset();
+						AuroraPtr->DestroyPreviewAurora();
+						AuroraPtr->EditorPaintWindow.Reset();
+						AuroraPtr->EditorPaintWidgetInstance = nullptr;
+					}
+					return;
 				}
-				return;
-			}
 
-			// SetTimerForNextTick: Executes lambda on next frame
-			// Ensures window close animation/logic completes before cleanup
-			GEditor->GetTimerManager()->SetTimerForNextTick([WeakAurora]() mutable
-			{
-				// IsValid(): Check if aurora still exists before accessing
-				if (WeakAurora.IsValid())
-				{
-					AVolumetricAurora* AuroraPtr = WeakAurora.Get();
+				// SetTimerForNextTick: Executes lambda on next frame
+				// Ensures window close animation/logic completes before cleanup
+				GEditor->GetTimerManager()->SetTimerForNextTick([WeakAurora]() mutable
+					{
+						// IsValid(): Check if aurora still exists before accessing
+						if (WeakAurora.IsValid())
+						{
+							AVolumetricAurora* AuroraPtr = WeakAurora.Get();
 
-					// Cleanup order matters:
-					// 1. Clear viewport first (holds references to SceneCapture)
-					// 2. Destroy preview system (uses aurora's resources)
-					// 3. Clear window references
-					// 4. Clear widget instance
-					AuroraPtr->EditorPreviewViewport.Reset();
-					AuroraPtr->DestroyPreviewAurora();
-					AuroraPtr->EditorPaintWindow.Reset();
-					AuroraPtr->EditorPaintWidgetInstance = nullptr;
+							// Cleanup order matters:
+							// 1. Clear viewport first (holds references to SceneCapture)
+							// 2. Destroy preview system (uses aurora's resources)
+							// 3. Clear window references
+							// 4. Clear widget instance
+							AuroraPtr->EditorPreviewViewport.Reset();
+							AuroraPtr->DestroyPreviewAurora();
+							AuroraPtr->EditorPaintWindow.Reset();
+							AuroraPtr->EditorPaintWidgetInstance = nullptr;
 
-					UE_LOG(LogTemp, Log, TEXT("Paint window closed, all resources cleaned up"));
-				}
-			});
-		})
+							UE_LOG(LogTemp, Log, TEXT("Paint window closed, all resources cleaned up"));
+						}
+					});
+			})
 	);
 
 	// ============================================================
@@ -872,16 +861,16 @@ FReply FVolumetricAuroraDetailsCustomization::OnNewAuroraPresetButtonClicked()
 			// Clear cached reference when the window is closed
 			NewWindow->SetOnWindowClosed(
 				FOnWindowClosed::CreateLambda([WeakCustomization](const TSharedRef<SWindow>&)
-				{
-					// Only reset if not shutting down and customization still alive
-					if (!IsEngineExitRequested())
 					{
-						if (TSharedPtr<IDetailCustomization> StillAlive = WeakCustomization.Pin())
+						// Only reset if not shutting down and customization still alive
+						if (!IsEngineExitRequested())
 						{
-							static_cast<FVolumetricAuroraDetailsCustomization*>(StillAlive.Get())->AuroraTypeSelectorWindow.Reset();
+							if (TSharedPtr<IDetailCustomization> StillAlive = WeakCustomization.Pin())
+							{
+								static_cast<FVolumetricAuroraDetailsCustomization*>(StillAlive.Get())->AuroraTypeSelectorWindow.Reset();
+							}
 						}
-					}
-				})
+					})
 			);
 
 			NewWindow->SetContent(SNew(SAuroraTypeSelectorWidget)
@@ -889,7 +878,7 @@ FReply FVolumetricAuroraDetailsCustomization::OnNewAuroraPresetButtonClicked()
 
 			FSlateApplication::Get().AddWindow(NewWindow);
 		});
-	
+
 	return FReply::Handled();
 }
 
@@ -977,7 +966,7 @@ void FVolumetricAuroraDetailsCustomization::BuildAuroraPresetSection(
 void FVolumetricAuroraDetailsCustomization::BuildPresetOptions()
 {
 	PresetOptions.Empty();
-	
+
 	FAssetRegistryModule& AssetRegistry =
 		FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 
@@ -988,9 +977,59 @@ void FVolumetricAuroraDetailsCustomization::BuildPresetOptions()
 		true
 	);
 
+	// Assets starting with "Default" come first, then sort by creation time (Oldest -> Newest)
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+	Assets.Sort([&PlatformFile](const FAssetData& A, const FAssetData& B)
+		{
+			// Check priority for names starting with "Default"
+			const bool bStartsWithDefaultA = A.AssetName.ToString().StartsWith(TEXT("Default"), ESearchCase::IgnoreCase);
+			const bool bStartsWithDefaultB = B.AssetName.ToString().StartsWith(TEXT("Default"), ESearchCase::IgnoreCase);
+
+			if (bStartsWithDefaultA != bStartsWithDefaultB)
+			{
+				return bStartsWithDefaultA; // If A is "Default...", it comes first
+			}
+
+			// Fallback to creation time sorting
+			auto GetAssetTime = [&PlatformFile](const FAssetData& Asset) -> FDateTime
+				{
+					const FString Filename = FPackageName::LongPackageNameToFilename(
+						Asset.PackageName.ToString(),
+						TEXT(".uasset")
+					);
+
+					FFileStatData Stat = PlatformFile.GetStatData(*Filename);
+
+					return (Stat.CreationTime != FDateTime::MinValue()) ? Stat.CreationTime : Stat.ModificationTime;
+				};
+
+			const FDateTime TimeA = GetAssetTime(A);
+			const FDateTime TimeB = GetAssetTime(B);
+
+			if (TimeA == TimeB)
+			{
+				return A.AssetName.LexicalLess(B.AssetName);
+			}
+
+			return TimeA < TimeB;
+		});
+
 	auto AddPresetGroup =
 		[this, &Assets](const FString& Header, UClass* PresetClass, bool bAddDivider)
 		{
+			bool bHasAssets = false;
+			for (const FAssetData& Asset : Assets)
+			{
+				if (Asset.GetClass()->IsChildOf(PresetClass))
+				{
+					bHasAssets = true;
+					break;
+				}
+			}
+
+			if (!bHasAssets) return;
+
 			if (bAddDivider)
 			{
 				PresetOptions.Add(MakeShared<FAuroraPresetComboItem>(
@@ -1004,8 +1043,7 @@ void FVolumetricAuroraDetailsCustomization::BuildPresetOptions()
 			{
 				if (Asset.GetClass()->IsChildOf(PresetClass))
 				{
-					if (UAuroraPresetBase* Preset =
-						Cast<UAuroraPresetBase>(Asset.GetAsset()))
+					if (UAuroraPresetBase* Preset = Cast<UAuroraPresetBase>(Asset.GetAsset()))
 					{
 						PresetOptions.Add(MakeShared<FAuroraPresetComboItem>(
 							EAuroraPresetItemType::Option,
@@ -1022,12 +1060,12 @@ void FVolumetricAuroraDetailsCustomization::BuildPresetOptions()
 }
 
 static FTableRowStyle NoHoverRowStyle =
-	FTableRowStyle(FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row"))
-	.SetActiveBrush(FSlateNoResource())
-	.SetInactiveBrush(FSlateNoResource())
-	.SetActiveHoveredBrush(FSlateNoResource())
-	.SetInactiveHoveredBrush(FSlateNoResource())
-	.SetSelectorFocusedBrush(FSlateNoResource());
+FTableRowStyle(FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row"))
+.SetActiveBrush(FSlateNoResource())
+.SetInactiveBrush(FSlateNoResource())
+.SetActiveHoveredBrush(FSlateNoResource())
+.SetInactiveHoveredBrush(FSlateNoResource())
+.SetSelectorFocusedBrush(FSlateNoResource());
 
 void FVolumetricAuroraDetailsCustomization::CreatePresetListView()
 {
@@ -1046,8 +1084,6 @@ void FVolumetricAuroraDetailsCustomization::CreatePresetListView()
 				.SelectionMode(ESelectionMode::Single)
 				.OnGenerateRow(this, &FVolumetricAuroraDetailsCustomization::GeneratePresetRow)
 				.OnSelectionChanged(this, &FVolumetricAuroraDetailsCustomization::OnPresetRowSelected)
-
-
 		];
 }
 
@@ -1056,61 +1092,61 @@ FVolumetricAuroraDetailsCustomization::BuildPresetDropdown()
 {
 	BuildPresetOptions();
 
-	return 
+	return
 		SNew(SHorizontalBox)
-		+SHorizontalBox::Slot()
+		+ SHorizontalBox::Slot()
 		.FillWidth(1.0f)
 		[
 			SNew(SComboButton)
-			.HasDownArrow(false)
-			.OnGetMenuContent_Lambda([this]()
-			{
-				return PresetListViewContainer.ToSharedRef();
-			})
-			.ButtonContent()
-			[
-				SNew(SBorder)
-					.BorderImage(FStyleDefaults::GetNoBrush())
-					.BorderBackgroundColor(FLinearColor(0.12f, 0.12f, 0.12f))
-					.Padding(FMargin(1, 3))
-					[
-						SNew(SHorizontalBox)
+				.HasDownArrow(false)
+				.OnGetMenuContent_Lambda([this]()
+					{
+						return PresetListViewContainer.ToSharedRef();
+					})
+				.ButtonContent()
+				[
+					SNew(SBorder)
+						.BorderImage(FStyleDefaults::GetNoBrush())
+						.BorderBackgroundColor(FLinearColor(0.12f, 0.12f, 0.12f))
+						.Padding(FMargin(1, 3))
+						[
+							SNew(SHorizontalBox)
+
+								+ SHorizontalBox::Slot()
+								.FillWidth(1.f)
+								.VAlign(VAlign_Center)
+								[
+									SNew(STextBlock)
+										.Text_Lambda([this]()
+											{
+												if (SelectedAuroras.IsValidIndex(0) && SelectedAuroras[0].IsValid() && SelectedAuroras[0]->SourcePreset)
+												{
+													UPackage* AssetPackage = SelectedAuroras[0]->SourcePreset->GetOutermost();
+													FString PresetName = FPaths::GetBaseFilename(AssetPackage->GetName());
+
+													if (!SelectedAuroras[0]->SourcePreset->IsIdentical(SelectedAuroras[0]->TargetAurora))
+													{
+														PresetName += TEXT("*");
+													}
+													return FText::FromString(PresetName);
+												}
+
+												return FText::FromString(TEXT("Select Preset"));
+											})
+										.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
+										.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+								]
 
 							+ SHorizontalBox::Slot()
-							.FillWidth(1.f)
-							.VAlign(VAlign_Center)
-							[
-								SNew(STextBlock)
-									.Text_Lambda([this]()
-										{
-											if (SelectedAuroras.IsValidIndex(0) && SelectedAuroras[0].IsValid() && SelectedAuroras[0]->SourcePreset)
-											{
-												UPackage* AssetPackage = SelectedAuroras[0]->SourcePreset->GetOutermost();
-												FString PresetName = FPaths::GetBaseFilename(AssetPackage->GetName());
-
-												if (!SelectedAuroras[0]->SourcePreset->IsIdentical(SelectedAuroras[0]->TargetAurora))
-												{
-													PresetName += TEXT("*");
-												}
-												return FText::FromString(PresetName);
-											}
-
-											return FText::FromString(TEXT("Select Preset"));
-										})
-									.Font(FCoreStyle::GetDefaultFontStyle("Regular", 8))
-									.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
-							]
-
-						+ SHorizontalBox::Slot()
-							.AutoWidth()
-							.VAlign(VAlign_Center)
-							.Padding(FMargin(0, 0))
-							[
-								SNew(SImage)
-									.Image(FAppStyle::GetBrush("Icons.ChevronDown"))
-									.ColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f))
-							]
-					]
+								.AutoWidth()
+								.VAlign(VAlign_Center)
+								.Padding(FMargin(0, 0))
+								[
+									SNew(SImage)
+										.Image(FAppStyle::GetBrush("Icons.ChevronDown"))
+										.ColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f))
+								]
+						]
 				]
 		]
 	+ SHorizontalBox::Slot()
@@ -1118,7 +1154,7 @@ FVolumetricAuroraDetailsCustomization::BuildPresetDropdown()
 		.Padding(FMargin(4.f, 0.f, 0.f, 0.f))
 		[
 			SNew(SButton)
-				.ButtonStyle(FAppStyle::Get(), "SimpleButton")	
+				.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 				.ToolTipText(FText::FromString("Find in Content Browser"))
 				.OnClicked_Lambda([this]()
 					{
@@ -1222,7 +1258,7 @@ void FVolumetricAuroraDetailsCustomization::OnPresetRowSelected(
 			}
 			return;
 		}
-		
+
 
 		FScopedTransaction Transaction(FText::FromString("Apply Aurora Preset"));
 
@@ -1496,7 +1532,7 @@ void FVolumetricAuroraDetailsCustomization::OnEmbeddedDetailsPropertyChanged(
 	// ========================================================================
 	/**
 	 * UpdatePreviewAurora handles all necessary updates for the preview:
-	 * - Sets bAuroraElementsMapDirty = true internally
+	 * - Sets bShapeTextureDirty = true internally
 	 * - Calls PreviewActor->Tick() which triggers FlowTick()
 	 * - FlowTick() processes dirty flag and updates simulation
 	 * - Captures scene at the end

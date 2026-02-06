@@ -157,8 +157,8 @@ void USplineDFTextureBakerComponent::DispatchDFBakeCS(const TArray<FVector4f>& S
 	DFTextureRT->ClearColor = FLinearColor::Black;
 	DFTextureRT->bAutoGenerateMips = false;
 
-	DFTextureRT->AddressX = TA_Wrap;
-	DFTextureRT->AddressY = TA_Wrap;
+	DFTextureRT->AddressX = TA_Clamp;
+	DFTextureRT->AddressY = TA_Clamp;
 
 	DFTextureRT->bCanCreateUAV = true;
 
@@ -263,8 +263,8 @@ void USplineDFTextureBakerComponent::DispatchDFBakeCS(const TArray<FVector4f>& S
 		NewTexture->SRGB = false;
 		NewTexture->MipGenSettings = TextureMipGenSettings::TMGS_NoMipmaps;
 
-		NewTexture->AddressX = TA_Wrap;
-		NewTexture->AddressY = TA_Wrap;
+		NewTexture->AddressX = TA_Clamp;
+		NewTexture->AddressY = TA_Clamp;
 
 
 

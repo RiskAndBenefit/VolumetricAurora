@@ -170,7 +170,7 @@ SamplerState ObstacleSampler;
 uint bHasObstacle;
 
 // Aurora element control (emitter/extinction zones)
-Texture2D AuroraElementsMap;
+Texture2D ShapeTexture;
 SamplerState AuroraElementsSampler;
 
 // Emitter noise parameters
@@ -196,12 +196,15 @@ float EmitterNoiseStrength;
 /**
  * Apply obstacle deflection to velocity
  * Particles slide along obstacle surfaces based on distance field normals
+ * Uses random deflection to prevent particle compression near obstacles
  *
  * @param Velocity Current velocity vector
- * @param ObstacleSample Current texture coordinate
+ * @param ObstacleSample Obstacle data (Normal.xy, Distance.z, Mask.w)
+ * @param UV Current texture coordinate
+ * @param TextureSize Texture dimensions
  * @return Deflected velocity vector
  */
-float2 ApplyObstacleDeflection(float2 Velocity, float4 ObstacleSample)
+float2 ApplyObstacleDeflection(float2 Velocity, float4 ObstacleSample, float2 UV, uint2 TextureSize)
 {
 	if (bHasObstacle == 0)
 		return Velocity;
@@ -210,60 +213,77 @@ float2 ApplyObstacleDeflection(float2 Velocity, float4 ObstacleSample)
 	float Distance = ObstacleSample.b;               // Distance (B channel)
 	float Mask = ObstacleSample.a;                   // Mask (A channel)
 
-	// Apply deflection in empty space near obstacles
-	// Mask < 0.9: empty space (not inside obstacle)
-	// Distance < ObstacleInfluenceRadius: close to obstacle
-	float ObstacleInfluenceRadius = 0.05;
-	if (Distance < ObstacleInfluenceRadius && Mask < 0.9)
+	// Only apply deflection in fluid region (not inside obstacle)
+	if (Mask >= 0.9)
+		return Velocity;
+
+	// Skip when obstacle is behind particle
+	if (dot(Velocity, Normal) > 0.f)
+		return Velocity;
+
+	// Store original speed before any modification
+	float OriginalSpeed = length(Velocity);
+
+	// Calculate both tangent directions perpendicular to normal
+	float2 Tangent1 = float2(-Normal.y, Normal.x);
+	float2 Tangent2 = float2(Normal.y, -Normal.x);
+	float Angle1 = dot(Velocity, Tangent1);
+	float Angle2 = dot(Velocity, Tangent2);
+
+	// Choose tangent direction closer to current velocity direction
+	float2 Tangent;
+	float TangentDirection;
+	if (abs(Angle1) < abs(Angle2))
 	{
-		// Skip when obstacle is behind particle
-		if (dot(Velocity, Normal) > 0.f)
-		{
-			return Velocity;
-		}
-
-		// Store original speed before any modification
-		float OriginalSpeed = length(Velocity);
-
-		float2 Tangent1 = float2(-Normal.y, Normal.x);
-		float2 Tangent2 = float2(Normal.y, -Normal.x);
-		float Angle1 = dot(Velocity, Tangent1);
-		float Angle2 = dot(Velocity, Tangent2);
-		float2 Tangent;
-		float TangentDirection;
-		if (abs(Angle1) < abs(Angle2))
-		{
-			Tangent = Tangent1;
-			TangentDirection = sign(Angle1);
-		}
-		else
-		{
-			Tangent = Tangent2;
-			TangentDirection = sign(Angle2);
-		}
-
-		// If no clear direction, default to one side
-		if (abs(TangentDirection) < 0.01)
-		{
-			TangentDirection = 1.0;
-		}
-
-		// Deflect along tangent while preserving original speed
-		float2 DeflectedVelocity = Tangent * TangentDirection * OriginalSpeed;
-
-		// Calculate influence based on distance (smooth falloff)
-		float Influence = 1.0 - saturate(Distance / ObstacleInfluenceRadius);
-		Influence = smoothstep(0.f, 1.f, Influence);
-
-		// Blend original and deflected velocity
-		Velocity = lerp(Velocity, DeflectedVelocity, Influence);
-
-		// Optional: gentle friction only at very close range
-		if (Distance < ObstacleInfluenceRadius * 0.1)
-		{
-			Velocity *= 0.9;
-		}
+		Tangent = Tangent1;
+		TangentDirection = sign(Angle1);
 	}
+	else
+	{
+		Tangent = Tangent2;
+		TangentDirection = sign(Angle2);
+	}
+
+	// If no clear direction, default to one side
+	if (abs(TangentDirection) < 0.01)
+	{
+		TangentDirection = 1.0;
+	}
+
+	// Deflect along tangent while preserving original speed
+	float2 DeflectedVelocity = Tangent * TangentDirection * OriginalSpeed;
+
+	// ============================================================================
+	// Random-based Influence: Only deflect some particles to prevent compression
+	// ============================================================================
+	float ObstacleInfluenceRadius = 0.05;
+
+	// Generate random value per pixel
+	float Random = Hash(float3(UV * TextureSize, Time * 0.1));
+
+	// Use surface steepness as threshold (steeper = more deflection)
+	float SlopeSteepness = abs(Normal.x);
+	float Threshold = SlopeSteepness;
+
+	// Base influence from distance (continuous falloff)
+	float Influence = 1.0 - saturate(Distance / ObstacleInfluenceRadius);
+
+	// Only apply strong deflection for random particles that pass threshold
+	if (Random < Threshold)
+	{
+		// Calculate how much below threshold (0 = just at threshold, 1 = far below)
+		float RandomStrength = 1.0 - (Random / (Threshold + 0.001));
+
+		// Proximity factor (closer = stronger)
+		float ProximityFactor = 1.0 - saturate(Distance / ObstacleInfluenceRadius);
+
+		// Boost influence for selected particles
+		float InfluenceBoost = RandomStrength * ProximityFactor * 0.7;
+		Influence = saturate(Influence + InfluenceBoost);
+	}
+
+	// Blend original and deflected velocity
+	Velocity = lerp(Velocity, DeflectedVelocity, Influence);
 
 	return Velocity;
 }
@@ -552,13 +572,13 @@ void MainCS(uint3 DispatchThreadID : SV_DispatchThreadID)
 	float CurrentDensity = 0.f;
 	float DensityFade = 0.f;
 	GetFlowVelocityAndDensity(UV, FlowVelocity, CurrentDensity, DensityFade);
-	FlowVelocity = ApplyObstacleDeflection(FlowVelocity, ObstacleSample);
+	FlowVelocity = ApplyObstacleDeflection(FlowVelocity, ObstacleSample, UV, TextureSize);
 	
 	float2 PrevUV = UV - FlowVelocity;
 	float LastDensity = BackBuffer.SampleLevel(Sampler, PrevUV, 0).r;
 
-	// Sample AuroraElementsMap for emitter/extinction values
-	float4 Elements = AuroraElementsMap.SampleLevel(AuroraElementsSampler, UV, 0);
+	// Sample ShapeTexture for emitter/extinction values
+	float4 Elements = ShapeTexture.SampleLevel(AuroraElementsSampler, UV, 0);
 	float EmitterValue = Elements.r;
 	
 	if (EmitterValue > EPSILON)

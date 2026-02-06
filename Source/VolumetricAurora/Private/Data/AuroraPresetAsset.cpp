@@ -104,17 +104,29 @@ void UAuroraPresetBase::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstanc
 	MaterialInstance->SetVectorParameterValue(TEXT("TopColor"), TopColor);
 	MaterialInstance->SetVectorParameterValue(TEXT("MidColor"), MidColor);
 	MaterialInstance->SetVectorParameterValue(TEXT("BottomColor"), BottomColor);
-
-	MaterialInstance->SetScalarParameterValue(TEXT("FadeType"), static_cast<float>(FadeType));
-	MaterialInstance->SetScalarParameterValue(TEXT("FadeStartRatio"), FadeStartRatio);
-	MaterialInstance->SetScalarParameterValue(TEXT("HeightFalloff"), HeightFalloff);
 	MaterialInstance->SetVectorParameterValue(TEXT("MidColorHeight"), FVector3f(MidColorHeight, 0.0f));
 
-	MaterialInstance->SetScalarParameterValue(TEXT("EnableFilmGrain"), bEnableFilmGrain);
+	MaterialInstance->SetScalarParameterValue(TEXT("EdgeFadeMode"), static_cast<float>(EdgeFadeMode));
+	MaterialInstance->SetScalarParameterValue(TEXT("EdgeFadeSoftness"), EdgeFadeSoftness);
+	MaterialInstance->SetScalarParameterValue(TEXT("HeightFalloff"), HeightFalloff);
+
+	MaterialInstance->SetScalarParameterValue(TEXT("bEnableFilmGrain"), bEnableFilmGrain);
 	MaterialInstance->SetScalarParameterValue(TEXT("FilmGrainIntensity"), FilmGrainIntensity);
+
+	MaterialInstance->SetScalarParameterValue(TEXT("bUseStraightAlphaPalette"), bUseStraightAlphaPalette);
+	MaterialInstance->SetScalarParameterValue(TEXT("ColorShiftStrength"), ColorShiftStrength);
+
+	MaterialInstance->SetScalarParameterValue(TEXT("bEnableStructureColoring"), bEnableStructureColoring);
+	MaterialInstance->SetVectorParameterValue(TEXT("SoftTint"), SoftTint);
+	MaterialInstance->SetVectorParameterValue(TEXT("CoreTint"), CoreTint);
+
 	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveTonePivot"), EmissiveTonePivot);
 	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveContrast"), EmissiveContrast);
 	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveSaturation"), EmissiveSaturation);
+
+	MaterialInstance->SetScalarParameterValue(TEXT("bEnableEmissiveStructure"), bEnableEmissiveStructure);
+	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveStructurePivot"), EmissiveStructurePivot);
+	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveStructureSelectivity"), EmissiveStructureSelectivity);
 }
 
 UNoiseAuroraPreset::UNoiseAuroraPreset()
@@ -131,22 +143,17 @@ void UNoiseAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* MaterialInstan
 {
 	Super::UpdateMaterial(MaterialInstance);
 
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsDual"), 1.0f);
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsSpline"), 0.0f);
+	MaterialInstance->SetScalarParameterValue(TEXT("AuroraType"), 0);
+	
 	MaterialInstance->SetScalarParameterValue(TEXT("Smoothness"), Smoothness);
-	MaterialInstance->SetScalarParameterValue(TEXT("Activity"), Activity);
-	MaterialInstance->SetScalarParameterValue(TEXT("MaskScaleMultiplier"), MaskScaleMultiplier);
-	MaterialInstance->SetVectorParameterValue(TEXT("MaskSpeedMultiplier"), FVector(MaskSpeedMultiplier, 0.0f));
-	MaterialInstance->SetScalarParameterValue(TEXT("MaskOpacity"), MaskOpacity);
-	MaterialInstance->SetScalarParameterValue(TEXT("ShapeFrequency"), ShapeFrequency);
-	MaterialInstance->SetVectorParameterValue(TEXT("ShapeSpeed"), FVector3f(ShapeSpeed, 0.0f));
+	MaterialInstance->SetScalarParameterValue(TEXT("Speed"), Speed);
 
-	MaterialInstance->SetScalarParameterValue(TEXT("UseStructureColoring"), bUseStructureColoring);
-	MaterialInstance->SetVectorParameterValue(TEXT("SoftTint"), SoftTint);
-	MaterialInstance->SetVectorParameterValue(TEXT("CoreTint"), CoreTint);
-	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveStructurePivot"), EmissiveStructurePivot);
-	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveStructureSelectivity"), EmissiveStructureSelectivity);
-	MaterialInstance->SetScalarParameterValue(TEXT("EmissiveStructureAmount"), EmissiveStructureAmount);
+	MaterialInstance->SetScalarParameterValue(TEXT("ShapeFrequency"), ShapeFrequency);
+	MaterialInstance->SetVectorParameterValue(TEXT("ScrollVelocity"), FVector3f(ScrollVelocity, 0.0f));
+
+	MaterialInstance->SetScalarParameterValue(TEXT("MaskFrequency"), MaskFrequency);
+	MaterialInstance->SetVectorParameterValue(TEXT("MaskScrollVelocity"), FVector(MaskScrollVelocity, 0.0f));
+	MaterialInstance->SetScalarParameterValue(TEXT("MaskOpacity"), MaskOpacity);
 }
 
 USplineAuroraPreset::USplineAuroraPreset()
@@ -163,11 +170,10 @@ void USplineAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* MaterialInsta
 {
 	Super::UpdateMaterial(MaterialInstance);
 
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsSpline"), 1.0f);
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsDual"), 0.0f);
+	MaterialInstance->SetScalarParameterValue(TEXT("AuroraType"), 1);
 	MaterialInstance->SetScalarParameterValue(TEXT("Thickness"), Thickness);
 	MaterialInstance->SetScalarParameterValue(TEXT("Distortion"), Distortion);
-	MaterialInstance->SetScalarParameterValue(TEXT("DistortionSpeed"), DistortionSpeed);
+	MaterialInstance->SetScalarParameterValue(TEXT("Speed"), Speed);
 	MaterialInstance->SetScalarParameterValue(TEXT("DistortionHeightFalloff"), DistortionHeightFalloff);
 }
 
@@ -290,8 +296,7 @@ void UPotentialFlowAuroraPreset::UpdateMaterial(UMaterialInstanceDynamic* Materi
 {
 	Super::UpdateMaterial(MaterialInstance);
 
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsSpline"), 0.0f);
-	MaterialInstance->SetScalarParameterValue(TEXT("bIsDual"), 0.0f);
+	MaterialInstance->SetScalarParameterValue(TEXT("AuroraType"), 2);
 
 	if (DisplayBuffer)
 	{

@@ -5,7 +5,7 @@
 #include "Engine/Engine.h"
 #include "VolumetricAuroraModule.h"
 #include "TextureResource.h"
-#include "SystemTextures.h" 
+#include "SystemTextures.h"
 #include "RenderGraphBuilder.h"
 #include "GlobalShader.h"
 #include "RHIStaticStates.h"
@@ -44,7 +44,9 @@
 #include "PackageTools.h"
 #endif
 
-// Sets default values
+// ========================================================================
+// Constructor
+// ========================================================================
 AVolumetricAurora::AVolumetricAurora()
 {
 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
@@ -54,6 +56,7 @@ AVolumetricAurora::AVolumetricAurora()
 	VolumeBox = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VolumeBox"));
 	VolumeBox->SetupAttachment(RootComponent);
 	VolumeBox->ComponentTags.Add(TEXT("Volume"));
+	VolumeBox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	// Set VolumeBox size similar to UDS Aurora (hardcoded)
 	VolumeBox->SetRelativeLocation(FVector(0.0f, 0.0f, 110000.0f));
 	VolumeBox->SetRelativeScale3D(FVector(50000.0f, 50000.0f, 1200.0f));
@@ -115,81 +118,157 @@ AVolumetricAurora::AVolumetricAurora()
 #endif // WITH_EDITORONLY_DATA
 }
 
-#if WITH_EDITOR
-void AVolumetricAurora::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+// ========================================================================
+// Override Functions
+// ========================================================================
+void AVolumetricAurora::Tick(float DeltaTime)
 {
-	Super::PostEditChangeProperty(PropertyChangedEvent);
+	Super::Tick(DeltaTime);
 
-	// Null check
-	if (!PropertyChangedEvent.Property)
+	if (bAuroraPlaying && TargetAurora)
 	{
-		UpdateMaterialTarget();
-		return;
-	}
+		AccumulatedTime += DeltaTime * TargetAurora->Speed;
+		UnscaledTime += DeltaTime;
 
-	FName PropertyName = PropertyChangedEvent.Property->GetFName();
-
-	// MemberProperty check for top-level changed member
-	if (PropertyChangedEvent.MemberProperty)
-	{
-		FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
-
-		// TargetAurora related property changed
-		if (MemberName == GET_MEMBER_NAME_CHECKED(AVolumetricAurora, TargetAurora))
+		// if (TargetAurora && TargetAurora->GetClass() == UPotentialFlowAuroraPreset::StaticClass() && AuroraMaterialDynamic)
+		if (TargetAurora->GetClass() == UPotentialFlowAuroraPreset::StaticClass())
 		{
-			// Check if TargetAurora is PotentialFlowAuroraPreset
-			if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
-			{
-				// ControlPoints, AuroraElementsMap etc. may have changed
-				bControlPointsDirty = true;
-
-				// Check AuroraElementsMap change (by property name)
-				if (PropertyName == GET_MEMBER_NAME_CHECKED(UPotentialFlowAuroraPreset, AuroraElementsMap))
-				{
-					bAuroraElementsMapDirty = true;
-				}
-			}
+			FlowTick(DeltaTime);
+			TargetAurora->UpdateMaterial(AuroraMaterialDynamic);
 		}
 	}
 
-	UpdateMaterialTarget();
+	UpdateMaterialTimeParameter();
+}
 
-	// Keep debug draw visible while editing properties via sliders
+bool AVolumetricAurora::ShouldTickIfViewportsOnly() const
+{
+	return true;
+}
+
+// ========================================================================
+// Public Functions
+// ========================================================================
+void AVolumetricAurora::FlowTick(float DeltaTime)
+{
+
+#if WITH_EDITOR
 	RenderControlPointsDebug();
+#endif
+
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+
+	// Calculate resolution value
+	const int32 SimRes = GetResolutionValue(FlowPreset->SimulationResolution);
+
+	// Create render targets or recreate on resolution change
+	if (!FlowPreset->FrontBuffer || !FlowPreset->FrontBuffer->bCanCreateUAV || FlowPreset->FrontBuffer->SizeX != SimRes)
+	{
+		FlowPreset->FrontBuffer = NewObject<UTextureRenderTarget2D>(this);
+		FlowPreset->FrontBuffer->bCanCreateUAV = true;
+		FlowPreset->FrontBuffer->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
+		FlowPreset->FrontBuffer->UpdateResourceImmediate();
+	}
+	if (!FlowPreset->BackBuffer || !FlowPreset->BackBuffer->bCanCreateUAV || FlowPreset->BackBuffer->SizeX != SimRes)
+	{
+		FlowPreset->BackBuffer = NewObject<UTextureRenderTarget2D>(this);
+		FlowPreset->BackBuffer->bCanCreateUAV = true;
+		FlowPreset->BackBuffer->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
+		FlowPreset->BackBuffer->UpdateResourceImmediate();
+	}
+
+	if (!FlowPreset->ObstacleMap || !FlowPreset->ObstacleMap->bCanCreateUAV || FlowPreset->ObstacleMap->SizeX != SimRes)
+	{
+		FlowPreset->ObstacleMap = NewObject<UTextureRenderTarget2D>(this);
+		FlowPreset->ObstacleMap->bCanCreateUAV = true;
+		FlowPreset->ObstacleMap->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
+		FlowPreset->ObstacleMap->UpdateResourceImmediate();
+		bShapeTextureDirty = true;
+	}
+
+	//// Connect material on first run
+	//if (!DynamicMaterial && PreviewMaterial && PreviewPlane)
+	//{
+	//	DynamicMaterial = UMaterialInstanceDynamic::Create(PreviewMaterial, this);
+	//	PreviewPlane->SetMaterial(0, DynamicMaterial);
+	//}
+
+	// Detect ShapeTexture changes (file replacement or content modification)
+	if (FlowPreset->ShapeTexture != PreviousShapeTexture)
+	{
+		// Replaced with different texture (or changed to nullptr)
+		bShapeTextureDirty = true;
+		PreviousShapeTexture = FlowPreset->ShapeTexture;
+		PreviousAuroraElementsResource = FlowPreset->ShapeTexture ? FlowPreset->ShapeTexture->GetResource() : nullptr;
+		//UE_LOG(LogTemp, Warning, TEXT("ShapeTexture changed to new texture: %p"), ShapeTexture);
+	}
+	else if (FlowPreset->ShapeTexture && FlowPreset->ShapeTexture->GetResource())
+	{
+		// Same texture but check if resource was updated
+		// Texture reimport recreates resource, so detect that
+		FTextureResource* CurrentResource = FlowPreset->ShapeTexture->GetResource();
+
+		if (PreviousAuroraElementsResource != CurrentResource)
+		{
+			bShapeTextureDirty = true;
+			PreviousAuroraElementsResource = CurrentResource;
+			UE_LOG(LogTemp, Warning, TEXT("ShapeTexture resource updated (reimported)"));
+		}
+	}
+
+	// Bake distance map when ShapeTexture changes
+	if (bShapeTextureDirty)
+	{
+		BakeDistanceMapToRenderTarget(FlowPreset);
+		bShapeTextureDirty = false;
+	}
+
+	SimulateAuroraPass(FlowPreset, DeltaTime);
+
+	// No post-processing: DisplayBuffer = FrontBuffer
+	FlowPreset->DisplayBuffer = FlowPreset->FrontBuffer;
+
+	// Swap buffers for next frame
+	Swap(FlowPreset->FrontBuffer, FlowPreset->BackBuffer);
 }
 
-void AVolumetricAurora::PostActorCreated()
+void AVolumetricAurora::UpdateMaterialTimeParameter()
 {
-	Super::PostActorCreated();
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("VolumetricAurora"));
-	if (Plugin.IsValid())
+	if (!AuroraMaterialDynamic)
 	{
-		PluginPath = TEXT("/") + Plugin->GetName();
-		PresetFolder = PluginPath + TEXT("/") + TEXT("AuroraPresets");
+		return;
 	}
 
-	if (!TargetAurora || !SourcePreset)
-	{
-		ApplyPresetToTarget(DefaultAurora);
-	}
+	AuroraMaterialDynamic->SetScalarParameterValue(TEXT("AccumulatedTime"), AccumulatedTime);
+	AuroraMaterialDynamic->SetScalarParameterValue(TEXT("UnscaledTime"), UnscaledTime);
 }
 
-void AVolumetricAurora::PostLoad()
+void AVolumetricAurora::ApplyPresetToTarget(UAuroraPresetBase* InPreset)
 {
-	Super::PostLoad();
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("VolumetricAurora"));
-	if (Plugin.IsValid())
+	if (!InPreset)	return;
+
+	Modify(); // Undo / Redo
+
+	TargetAurora = DuplicateObject<UAuroraPresetBase>(InPreset, this);
+	SourcePreset = InPreset;
+	if (TargetAurora)
 	{
-		PluginPath = TEXT("/") + Plugin->GetName();
-		PresetFolder = PluginPath + TEXT("/") + TEXT("AuroraPresets");
+		TargetAurora->ClearFlags(RF_Standalone);
+		TargetAurora->SetFlags(RF_Transactional);
+
+		if (VolumeBox)
+		{
+			AuroraMaterialDynamic = VolumeBox->CreateAndSetMaterialInstanceDynamic(0);
+		}
+
+		UpdateMaterialTarget();
+		UpdateMaterialTimeParameter();
 	}
 
-	if (!TargetAurora || !SourcePreset)
-	{
-		ApplyPresetToTarget(DefaultAurora);
-	}
+	bControlPointsDirty = true;
+	bShapeTextureDirty = true;
 
-	// Auto-restore checkpoint in editor
+	// Auto-restore checkpoint if new preset has one
 	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
 	if (FlowPreset && FlowPreset->HasValidCheckpoint())
 	{
@@ -197,7 +276,323 @@ void AVolumetricAurora::PostLoad()
 	}
 }
 
-#endif
+FString AVolumetricAurora::GetPluginPath()
+{
+	return PluginPath;
+}
+
+// ========================================================================
+// Blueprint Control Functions
+// ========================================================================
+bool AVolumetricAurora::IsSameAsSource(UAuroraPresetBase* NewPreset)
+{
+	if (SourcePreset == NewPreset)
+		return true;
+	else
+		return false;
+}
+
+bool AVolumetricAurora::SetAuroraPreset(UAuroraPresetBase* NewPreset)
+{
+	if (!NewPreset)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetAuroraPreset: NewPreset is nullptr"));
+		return false;
+	}
+
+	// Apply preset to target
+	ApplyPresetToTarget(NewPreset);
+
+	UE_LOG(LogTemp, Log, TEXT("Aurora preset changed to: %s"), *NewPreset->GetName());
+	return true;
+}
+
+UAuroraPresetBase* AVolumetricAurora::GetAuroraPreset()
+{
+	return TargetAurora;
+}
+
+void AVolumetricAurora::SetAuroraEnabled(bool bEnabled)
+{
+	if (VolumeBox)
+	{
+		VolumeBox->SetVisibility(bEnabled);
+	}
+}
+
+bool AVolumetricAurora::GetAuroraEnabled() const
+{
+	return VolumeBox ? VolumeBox->IsVisible() : false;
+}
+
+void AVolumetricAurora::ToggleAuroraEnabled()
+{
+	if (VolumeBox)
+	{
+		VolumeBox->ToggleVisibility();
+	}
+}
+
+UAuroraPresetBase* AVolumetricAurora::GetSourcePreset() const
+{
+	return SourcePreset;
+}
+
+bool AVolumetricAurora::IsUsingPreset(UAuroraPresetBase* PresetToCheck) const
+{
+	if (!PresetToCheck)
+	{
+		return false;
+	}
+
+	// Compare with source preset (not duplicate TargetAurora)
+	return SourcePreset == PresetToCheck;
+}
+
+void AVolumetricAurora::DebugAuroraState()
+{
+	UE_LOG(LogTemp, Warning, TEXT("===== Aurora Debug State ====="));
+	UE_LOG(LogTemp, Warning, TEXT("VolumeBox: %s"), VolumeBox ? TEXT("Valid") : TEXT("NULL"));
+
+	// VolumeBox detailed info
+	if (VolumeBox)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("  - Visible: %s"), VolumeBox->IsVisible() ? TEXT("TRUE") : TEXT("FALSE"));
+		UE_LOG(LogTemp, Warning, TEXT("  - Hidden in Game: %s"), VolumeBox->bHiddenInGame ? TEXT("TRUE") : TEXT("FALSE"));
+		UE_LOG(LogTemp, Warning, TEXT("  - Location: %s"), *VolumeBox->GetComponentLocation().ToString());
+		UE_LOG(LogTemp, Warning, TEXT("  - Scale: %s"), *VolumeBox->GetComponentScale().ToString());
+		UE_LOG(LogTemp, Warning, TEXT("  - Material Count: %d"), VolumeBox->GetNumMaterials());
+
+		for (int32 i = 0; i < VolumeBox->GetNumMaterials(); i++)
+		{
+			UMaterialInterface* Mat = VolumeBox->GetMaterial(i);
+			UE_LOG(LogTemp, Warning, TEXT("  - Material[%d]: %s"), i, Mat ? *Mat->GetName() : TEXT("NULL"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("Material Dynamic: %s"), AuroraMaterialDynamic ? TEXT("Valid") : TEXT("NULL"));
+
+	// Material parameters check
+	if (AuroraMaterialDynamic && TargetAurora)
+	{
+		float TestIntensity = 0.0f;
+		if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: %f"), TestIntensity);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: NOT FOUND!"));
+		}
+
+		UTexture* ShapeTexture = nullptr;
+		if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture Parameter: NOT FOUND!"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("TargetAurora: %s"), TargetAurora ? *TargetAurora->GetName() : TEXT("NULL"));
+
+	// Preset detailed info
+	if (TargetAurora)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("  - Intensity: %f"), TargetAurora->Intensity);
+		UE_LOG(LogTemp, Warning, TEXT("  - Altitude: %f km"), TargetAurora->Altitude);
+		UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), TargetAurora->ShapeTexture ? *TargetAurora->ShapeTexture->GetName() : TEXT("NULL"));
+
+		if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Noise Aurora"));
+			UE_LOG(LogTemp, Warning, TEXT("  - Speed: %f"), NoisePreset->Speed);
+		}
+		else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Potential Flow Aurora"));
+			UE_LOG(LogTemp, Warning, TEXT("  - Control Points: %d"), FlowPreset->ControlPoints.Num());
+		}
+		else if (USplineAuroraPreset* SplinePreset = Cast<USplineAuroraPreset>(TargetAurora))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("  - Type: Spline Aurora"));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("SourcePreset: %s"), SourcePreset ? *SourcePreset->GetName() : TEXT("NULL"));
+	UE_LOG(LogTemp, Warning, TEXT("Is Playing: %s"), bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"));
+	UE_LOG(LogTemp, Warning, TEXT("Accumulated Time: %f"), AccumulatedTime);
+	UE_LOG(LogTemp, Warning, TEXT("Actor Hidden: %s"), IsHidden() ? TEXT("TRUE") : TEXT("FALSE"));
+	UE_LOG(LogTemp, Warning, TEXT("Actor Location: %s"), *GetActorLocation().ToString());
+	UE_LOG(LogTemp, Warning, TEXT("=============================="));
+}
+
+void AVolumetricAurora::DisplayAuroraDebugInfo(bool bShowDetailed)
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// Screen position offset
+	int32 LineOffset = 0;
+	const float DisplayTime = 0.0f; // 0 = update every frame
+	const FColor TitleColor = FColor::Cyan;
+	const FColor ValueColor = FColor::White;
+	const FColor WarningColor = FColor::Yellow;
+	const FColor ErrorColor = FColor::Red;
+
+	// Title
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
+		TEXT("===== Aurora Debug Info ====="));
+
+	// Basic state
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+		FString::Printf(TEXT("Playing: %s | Time: %.2f"),
+			bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"),
+			AccumulatedTime));
+
+	// Visibility
+	FColor VisibilityColor = (VolumeBox && VolumeBox->IsVisible()) ? ValueColor : ErrorColor;
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, VisibilityColor,
+		FString::Printf(TEXT("Visible: %s | Hidden: %s"),
+			(VolumeBox && VolumeBox->IsVisible()) ? TEXT("TRUE") : TEXT("FALSE"),
+			IsHidden() ? TEXT("TRUE") : TEXT("FALSE")));
+
+	// Preset info
+	if (TargetAurora)
+	{
+		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+			FString::Printf(TEXT("Preset: %s | Intensity: %.1f"),
+				*TargetAurora->GetName(),
+				TargetAurora->Intensity));
+	}
+	else
+	{
+		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
+			TEXT("Preset: NULL"));
+	}
+
+	// Detailed info
+	if (bShowDetailed)
+	{
+		// Material info
+		if (VolumeBox)
+		{
+			UMaterialInterface* Mat = VolumeBox->GetMaterial(0);
+			FColor MatColor = Mat ? ValueColor : ErrorColor;
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, MatColor,
+				FString::Printf(TEXT("Material: %s"),
+					Mat ? *Mat->GetName() : TEXT("NULL")));
+		}
+
+		if (AuroraMaterialDynamic)
+		{
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("MID: %s"), *AuroraMaterialDynamic->GetName()));
+
+			// Check material parameters
+			float TestIntensity = 0.0f;
+			if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("  Intensity Param: %.1f"), TestIntensity));
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
+					TEXT("  Intensity Param: NOT FOUND"));
+			}
+
+			UTexture* ShapeTexture = nullptr;
+			if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("  ShapeTexture: %s"),
+						ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL")));
+			}
+			else
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
+					TEXT("  ShapeTexture: NOT FOUND"));
+			}
+		}
+		else
+		{
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
+				TEXT("MID: NULL"));
+		}
+
+		// Preset type
+		if (TargetAurora)
+		{
+			if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("Type: Noise | Speed: %.3f"), NoisePreset->Speed));
+			}
+			else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					FString::Printf(TEXT("Type: Flow | ControlPoints: %d"), FlowPreset->ControlPoints.Num()));
+			}
+			else if (Cast<USplineAuroraPreset>(TargetAurora))
+			{
+				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+					TEXT("Type: Spline"));
+			}
+		}
+
+		// Location/Scale
+		if (VolumeBox)
+		{
+			FVector Loc = VolumeBox->GetComponentLocation();
+			FVector Scale = VolumeBox->GetComponentScale();
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("Loc: %.0f, %.0f, %.0f"), Loc.X, Loc.Y, Loc.Z));
+			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
+				FString::Printf(TEXT("Scale: %.0f, %.0f, %.0f"), Scale.X, Scale.Y, Scale.Z));
+		}
+	}
+
+	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
+		TEXT("============================"));
+}
+
+// ========================================================================
+// Override Functions (protected)
+// ========================================================================
+void AVolumetricAurora::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// TODO: Need modification later (allow user to bake DF texture to different path)
+	//MakeDFTexture();
+
+	// Ensure preset exists (simulation data)
+	if (!TargetAurora)
+	{
+		ApplyPresetToTarget(DefaultAurora);
+	}
+
+	// Ensure MID exists in PIE (rendering target)
+	if (!AuroraMaterialDynamic && VolumeBox)
+	{
+		AuroraMaterialDynamic = VolumeBox->CreateAndSetMaterialInstanceDynamic(0);
+	}
+
+	// Auto-restore checkpoint on first load
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (FlowPreset && FlowPreset->HasValidCheckpoint())
+	{
+		// Force texture resource creation
+		FlowPreset->SimulationCheckpointTexture->UpdateResource();
+		bForceResetSimulation = true;
+	}
+}
+
 void AVolumetricAurora::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
@@ -234,122 +629,20 @@ void AVolumetricAurora::OnConstruction(const FTransform& Transform)
 	UpdateMaterialTarget();
 }
 
-void AVolumetricAurora::BeginPlay()
+// ========================================================================
+// Private Functions
+// ========================================================================
+void AVolumetricAurora::UpdateMaterialTarget()
 {
-	Super::BeginPlay();
-
-	// TODO: Need modification later (allow user to bake DF texture to different path)
-	//MakeDFTexture();
-
-	// Ensure preset exists (simulation data)
-	if (!TargetAurora)
+	if (!TargetAurora || !AuroraMaterialDynamic)
 	{
-		ApplyPresetToTarget(DefaultAurora);
+		return;
 	}
 
-	// Ensure MID exists in PIE (rendering target)
-	if (!AuroraMaterialDynamic && VolumeBox)
-	{
-		AuroraMaterialDynamic = VolumeBox->CreateAndSetMaterialInstanceDynamic(0);
-	}
-
-	// Auto-restore checkpoint on first load
-	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
-	if (FlowPreset && FlowPreset->HasValidCheckpoint())
-	{
-		bForceResetSimulation = true;
-	}
-}
-
-// Called every frame
-bool AVolumetricAurora::ShouldTickIfViewportsOnly() const
-{
-	return true;
-}
-
-void AVolumetricAurora::FlowTick(float DeltaTime)
-{
-
-#if WITH_EDITOR
-	RenderControlPointsDebug();
-#endif
-
-	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
-
-	FlowSimulationAccumulatedTime += DeltaTime * FlowPreset->FlowTimeScale;
-
-	// Calculate resolution value
-	const int32 SimRes = GetResolutionValue(FlowPreset->SimulationResolution);
-
-	// Create render targets or recreate on resolution change
-	if (!FlowPreset->FrontBuffer || !FlowPreset->FrontBuffer->bCanCreateUAV || FlowPreset->FrontBuffer->SizeX != SimRes)
-	{
-		FlowPreset->FrontBuffer = NewObject<UTextureRenderTarget2D>(this);
-		FlowPreset->FrontBuffer->bCanCreateUAV = true;
-		FlowPreset->FrontBuffer->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
-		FlowPreset->FrontBuffer->UpdateResourceImmediate();
-	}
-	if (!FlowPreset->BackBuffer || !FlowPreset->BackBuffer->bCanCreateUAV || FlowPreset->BackBuffer->SizeX != SimRes)
-	{
-		FlowPreset->BackBuffer = NewObject<UTextureRenderTarget2D>(this);
-		FlowPreset->BackBuffer->bCanCreateUAV = true;
-		FlowPreset->BackBuffer->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
-		FlowPreset->BackBuffer->UpdateResourceImmediate();
-	}
-
-	if (!FlowPreset->ObstacleMap || !FlowPreset->ObstacleMap->bCanCreateUAV || FlowPreset->ObstacleMap->SizeX != SimRes)
-	{
-		FlowPreset->ObstacleMap = NewObject<UTextureRenderTarget2D>(this);
-		FlowPreset->ObstacleMap->bCanCreateUAV = true;
-		FlowPreset->ObstacleMap->InitCustomFormat(SimRes, SimRes, PF_FloatRGBA, false);
-		FlowPreset->ObstacleMap->UpdateResourceImmediate();
-		bAuroraElementsMapDirty = true;
-	}
-
-	//// Connect material on first run
-	//if (!DynamicMaterial && PreviewMaterial && PreviewPlane)
-	//{
-	//	DynamicMaterial = UMaterialInstanceDynamic::Create(PreviewMaterial, this);
-	//	PreviewPlane->SetMaterial(0, DynamicMaterial);
-	//}
-
-	// Detect AuroraElementsMap changes (file replacement or content modification)
-	if (FlowPreset->AuroraElementsMap != PreviousAuroraElementsMap)
-	{
-		// Replaced with different texture (or changed to nullptr)
-		bAuroraElementsMapDirty = true;
-		PreviousAuroraElementsMap = FlowPreset->AuroraElementsMap;
-		PreviousAuroraElementsResource = FlowPreset->AuroraElementsMap ? FlowPreset->AuroraElementsMap->GetResource() : nullptr;
-		//UE_LOG(LogTemp, Warning, TEXT("AuroraElementsMap changed to new texture: %p"), AuroraElementsMap);
-	}
-	else if (FlowPreset->AuroraElementsMap && FlowPreset->AuroraElementsMap->GetResource())
-	{
-		// Same texture but check if resource was updated
-		// Texture reimport recreates resource, so detect that
-		FTextureResource* CurrentResource = FlowPreset->AuroraElementsMap->GetResource();
-
-		if (PreviousAuroraElementsResource != CurrentResource)
-		{
-			bAuroraElementsMapDirty = true;
-			PreviousAuroraElementsResource = CurrentResource;
-			UE_LOG(LogTemp, Warning, TEXT("AuroraElementsMap resource updated (reimported)"));
-		}
-	}
-
-	// Bake distance map when AuroraElementsMap changes
-	if (bAuroraElementsMapDirty)
-	{
-		BakeDistanceMapToRenderTarget(FlowPreset);
-		bAuroraElementsMapDirty = false;
-	}
-
-	SimulateAuroraPass(FlowPreset, DeltaTime);
-
-	// No post-processing: DisplayBuffer = FrontBuffer
-	FlowPreset->DisplayBuffer = FlowPreset->FrontBuffer;
-
-	// Swap buffers for next frame
-	Swap(FlowPreset->FrontBuffer, FlowPreset->BackBuffer);
+	TargetAurora->UpdateMaterial(AuroraMaterialDynamic);
+	VolumeBox->SetRelativeLocation(FVector(0.0f, 0.0f, TargetAurora->Altitude * 100000.0f));
+	VolumeBox->SetWorldRotation(FQuat::Identity);
+	VolumeBox->SetRelativeScale3D(FVector(TargetAurora->AuroraAreaExtent, TargetAurora->AuroraAreaExtent, TargetAurora->AuroraHeight) * 1000.0f);
 }
 
 void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPreset, float DeltaTime)
@@ -563,15 +856,15 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 
 	// Emitter parameters
 	FTextureResource* AuroraElementsTexResource = nullptr;
-	if (FlowPreset->AuroraElementsMap)
+	if (FlowPreset->ShapeTexture)
 	{
-		AuroraElementsTexResource = FlowPreset->AuroraElementsMap->GetResource();
+		AuroraElementsTexResource = FlowPreset->ShapeTexture->GetResource();
 	}
 
 	// Restore simulation time before render thread work
 	if (bResetSimulation && FlowPreset->HasValidCheckpoint())
 	{
-		FlowSimulationAccumulatedTime = FlowPreset->SimulationCheckpointTime;
+		AccumulatedTime = FlowPreset->SimulationCheckpointTime;
 	}
 
 	// 2. Enqueue render command
@@ -580,8 +873,8 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 			[
 				FBResource,
 				BBResource,
-				AccumulatedTime = FlowSimulationAccumulatedTime,
-				TickTime = DeltaTime * FlowPreset->FlowTimeScale,
+				AccumulatedTime = AccumulatedTime,
+				TickTime = DeltaTime * FlowPreset->Speed,	// Flow 오로라 Speed 매직넘버(0.5f)
 				BaseFlowVec,
 				CPInfo = ControlPointsInfo,
 				SingleForceCP = SingleForceControlPoints,
@@ -667,7 +960,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef ControlPointInfoBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("ControlPointsInfo"));
 		if (NumControlPoints > 0)
 		{
-			GraphBuilder.QueueBufferUpload(ControlPointInfoBuffer, CPInfo.GetData(), sizeof(FControlPointInfoGPU)* NumControlPoints);
+			GraphBuilder.QueueBufferUpload(ControlPointInfoBuffer, CPInfo.GetData(), sizeof(FControlPointInfoGPU) * NumControlPoints);
 		}
 		else
 		{
@@ -682,7 +975,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef SingleForceCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("SingleForceControlPoint"));
 		if (NumSingleForceCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(SingleForceCPBuffer, SingleForceCP.GetData(), sizeof(FSingleForceControlPointGPU)* NumSingleForceCP);
+			GraphBuilder.QueueBufferUpload(SingleForceCPBuffer, SingleForceCP.GetData(), sizeof(FSingleForceControlPointGPU) * NumSingleForceCP);
 		}
 		else
 		{
@@ -697,7 +990,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef DoubleForceCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("DoubleForceControlPoint"));
 		if (NumDoubleForceCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(DoubleForceCPBuffer, DoubleForceCP.GetData(), sizeof(FDoubleForceControlPointGPU)* NumDoubleForceCP);
+			GraphBuilder.QueueBufferUpload(DoubleForceCPBuffer, DoubleForceCP.GetData(), sizeof(FDoubleForceControlPointGPU) * NumDoubleForceCP);
 		}
 		else
 		{
@@ -712,7 +1005,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef TripleForceCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("TripleForceControlPoint"));
 		if (NumTripleForceCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(TripleForceCPBuffer, TripleForceCP.GetData(), sizeof(FTripleForceControlPointGPU)* NumTripleForceCP);
+			GraphBuilder.QueueBufferUpload(TripleForceCPBuffer, TripleForceCP.GetData(), sizeof(FTripleForceControlPointGPU) * NumTripleForceCP);
 		}
 		else
 		{
@@ -727,7 +1020,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef DipoleCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("DipoleControlPoint"));
 		if (NumDipoleCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(DipoleCPBuffer, DipoleCP.GetData(), sizeof(FDipoleControlPointGPU)* NumDipoleCP);
+			GraphBuilder.QueueBufferUpload(DipoleCPBuffer, DipoleCP.GetData(), sizeof(FDipoleControlPointGPU) * NumDipoleCP);
 		}
 		else
 		{
@@ -742,7 +1035,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef CurlCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("CurlControlPoint"));
 		if (NumCurlCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(CurlCPBuffer, CurlCP.GetData(), sizeof(FCurlControlPointGPU)* NumCurlCP);
+			GraphBuilder.QueueBufferUpload(CurlCPBuffer, CurlCP.GetData(), sizeof(FCurlControlPointGPU) * NumCurlCP);
 		}
 		else
 		{
@@ -757,7 +1050,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		FRDGBufferRef WarpCPBuffer = GraphBuilder.CreateBuffer(Desc, TEXT("WarpControlPoint"));
 		if (NumWarpCP > 0)
 		{
-			GraphBuilder.QueueBufferUpload(WarpCPBuffer, WarpCP.GetData(), sizeof(FWarpControlPointGPU)* NumWarpCP);
+			GraphBuilder.QueueBufferUpload(WarpCPBuffer, WarpCP.GetData(), sizeof(FWarpControlPointGPU) * NumWarpCP);
 		}
 		else
 		{
@@ -798,11 +1091,11 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 		// Aurora Elements Texture 안전 처리
 		if (AuroraElementsTexResource)
 		{
-			PassParameters->AuroraElementsMap = AuroraElementsTexResource->TextureRHI;
+			PassParameters->ShapeTexture = AuroraElementsTexResource->TextureRHI;
 		}
 		else
 		{
-			PassParameters->AuroraElementsMap = GSystemTextures.BlackDummy->GetRHI();
+			PassParameters->ShapeTexture = GSystemTextures.BlackDummy->GetRHI();
 		}
 		PassParameters->AuroraElementsSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
 
@@ -834,7 +1127,7 @@ void AVolumetricAurora::SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPrese
 void AVolumetricAurora::BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset* FlowPreset)
 {
 	// 1. Validation
-	if (!FlowPreset->AuroraElementsMap)
+	if (!FlowPreset->ShapeTexture)
 	{
 		return;
 	}
@@ -853,7 +1146,7 @@ void AVolumetricAurora::BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset
 		return;
 	}
 
-	FTextureResource* ObstacleTextureResource = FlowPreset->AuroraElementsMap->GetResource();
+	FTextureResource* ObstacleTextureResource = FlowPreset->ShapeTexture->GetResource();
 	if (!ObstacleTextureResource)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Obstacle texture resource is null."));
@@ -1045,6 +1338,137 @@ void AVolumetricAurora::BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset
 }
 
 #if WITH_EDITOR
+// ========================================================================
+// Editor-Only Override Functions (protected)
+// ========================================================================
+void AVolumetricAurora::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	// Null check
+	if (!PropertyChangedEvent.Property)
+	{
+		UpdateMaterialTarget();
+		return;
+	}
+
+	FName PropertyName = PropertyChangedEvent.Property->GetFName();
+
+	// MemberProperty check for top-level changed member
+	if (PropertyChangedEvent.MemberProperty)
+	{
+		FName MemberName = PropertyChangedEvent.MemberProperty->GetFName();
+
+		// TargetAurora related property changed
+		if (MemberName == GET_MEMBER_NAME_CHECKED(AVolumetricAurora, TargetAurora))
+		{
+			// Check if TargetAurora is PotentialFlowAuroraPreset
+			if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+			{
+				// ControlPoints, ShapeTexture etc. may have changed
+				bControlPointsDirty = true;
+
+				// Check ShapeTexture change (by property name)
+				if (PropertyName == GET_MEMBER_NAME_CHECKED(UPotentialFlowAuroraPreset, ShapeTexture))
+				{
+					bShapeTextureDirty = true;
+				}
+			}
+		}
+	}
+
+	UpdateMaterialTarget();
+
+	// Keep debug draw visible while editing properties via sliders
+	RenderControlPointsDebug();
+}
+
+void AVolumetricAurora::PostEditUndo()
+{
+	Super::PostEditUndo();
+
+	// After Undo/Redo, mark control points as dirty to trigger simulation update
+	if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
+	{
+		bControlPointsDirty = true;
+		bShapeTextureDirty = true;
+	}
+
+	UpdateMaterialTarget();
+
+	// Update debug visualization
+	RenderControlPointsDebug();
+}
+
+void AVolumetricAurora::PostActorCreated()
+{
+	Super::PostActorCreated();
+	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("VolumetricAurora"));
+	if (Plugin.IsValid())
+	{
+		PluginPath = TEXT("/") + Plugin->GetName();
+		PresetFolder = PluginPath + TEXT("/") + TEXT("AuroraPresets");
+	}
+
+	if (!TargetAurora || !SourcePreset)
+	{
+		ApplyPresetToTarget(DefaultAurora);
+	}
+}
+
+void AVolumetricAurora::PostLoad()
+{
+	Super::PostLoad();
+	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("VolumetricAurora"));
+	if (Plugin.IsValid())
+	{
+		PluginPath = TEXT("/") + Plugin->GetName();
+		PresetFolder = PluginPath + TEXT("/") + TEXT("AuroraPresets");
+	}
+
+	if (!TargetAurora || !SourcePreset)
+	{
+		ApplyPresetToTarget(DefaultAurora);
+	}
+
+	// Auto-restore checkpoint in editor
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (FlowPreset && FlowPreset->HasValidCheckpoint())
+	{
+		// Force texture resource creation for first engine launch
+		FlowPreset->SimulationCheckpointTexture->UpdateResource();
+		bForceResetSimulation = true;
+	}
+}
+
+// ========================================================================
+// Editor-Only Public Functions
+// ========================================================================
+void AVolumetricAurora::ResetFlowSimulation()
+{
+	bForceResetSimulation = true;
+}
+
+void AVolumetricAurora::CaptureFlowSimulationCheckpoint()
+{
+	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
+	if (!FlowPreset)
+	{
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("CaptureFlowSimulationCheckpoint failed: Not using PotentialFlowAuroraPreset")
+		);
+		return;
+	}
+
+	// Capture to instance only (not source - user must manually save)
+	FlowPreset->CaptureSimulationCheckpoint(GetName(), AccumulatedTime);
+}
+
+// ========================================================================
+// Editor-Only Private Functions
+// ========================================================================
 void AVolumetricAurora::RenderControlPointsDebug() const
 {
 	// Control Points Debug Display using DrawDebugSphere
@@ -1059,17 +1483,17 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 
 	// Use DisplaySize as sphere radius
 	float SphereRadius = PFAuroraPreset->DisplaySize * 10000.0f;
-	
+
 	// Find Volume
 	UStaticMeshComponent* Volume = nullptr;
 	TArray<UActorComponent*> Comps =
 		GetComponentsByTag(UStaticMeshComponent::StaticClass(), TEXT("Volume"));
-	
+
 	if (Comps.Num() == 0) return;
 	Volume = Cast<UStaticMeshComponent>(Comps[0]);
 	if (!Volume) return;
 
-	
+
 	int PointWithoutPositionNum = 0;
 
 	// Store Control Point position and type info only
@@ -1199,7 +1623,7 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 				1000.0f
 			);
 		}
-		
+
 		if (!bIsGlobal
 			&& PFAuroraPreset->bDisplayAttenuationRange
 			&& ControlPoint.bDisplayAttenuationRange)
@@ -1270,19 +1694,19 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 			if (bHasThirdForce)
 			{
 				DrawDebugCircle(
-				GetWorld(),
-				Pos,
-				AttenuationStart3 * Extent.X * 2.f,
-				128,
-				FColor::Turquoise,
-				false,
-				0.f,
-				0,
-				1000.0f,
-				FVector(1, 0, 0),
-				FVector(0, 1, 0),
-				false
-			);
+					GetWorld(),
+					Pos,
+					AttenuationStart3 * Extent.X * 2.f,
+					128,
+					FColor::Turquoise,
+					false,
+					0.f,
+					0,
+					1000.0f,
+					FVector(1, 0, 0),
+					FVector(0, 1, 0),
+					false
+				);
 
 				DrawDebugCircle(
 					GetWorld(),
@@ -1303,12 +1727,9 @@ void AVolumetricAurora::RenderControlPointsDebug() const
 	}
 }
 
-/**
-* @brief Initialize render target for texture painting
-*
-* Creates a 2048x2048 RGBA8 render target if it doesn't exist.
-* This render target will be used as the paint canvas.
-*/
+// ========================================================================
+// Texture Paint System Functions
+// ========================================================================
 void AVolumetricAurora::InitializeElementsRenderTarget()
 {
 	if (ElementsRenderTarget)
@@ -1333,12 +1754,12 @@ void AVolumetricAurora::InitializeElementsRenderTarget()
 		ElementsRenderTarget->ClearColor = FLinearColor::Black;
 		ElementsRenderTarget->UpdateResourceImmediate(true);
 
-		// Copy existing AuroraElementsMap to ElementsRenderTarget
+		// Copy existing ShapeTexture to ElementsRenderTarget
 		if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
 		{
-			if (FlowPreset->AuroraElementsMap)
+			if (FlowPreset->ShapeTexture)
 			{
-				UMaterialInstanceDynamic* CopyMaterial = CreateSimpleMaterialForTextureCopy(FlowPreset->AuroraElementsMap);
+				UMaterialInstanceDynamic* CopyMaterial = CreateSimpleMaterialForTextureCopy(FlowPreset->ShapeTexture);
 				if (CopyMaterial)
 				{
 					UKismetRenderingLibrary::DrawMaterialToRenderTarget(
@@ -1413,10 +1834,9 @@ UMaterialInstanceDynamic* AVolumetricAurora::CreateSimpleMaterialForTextureCopy(
 	return DynMaterial;
 }
 
-// ============================================================================
-// Preview Aurora System Implementation
-// ============================================================================
-
+// ========================================================================
+// Preview Aurora System Functions
+// ========================================================================
 AVolumetricAurora* AVolumetricAurora::CreatePreviewAurora()
 {
 	UE_LOG(LogTemp, Log, TEXT("CreatePreviewAurora: Starting..."));
@@ -1565,8 +1985,8 @@ AVolumetricAurora* AVolumetricAurora::CreatePreviewAurora()
 	{
 		if (UPotentialFlowAuroraPreset* PreviewFlowPreset = Cast<UPotentialFlowAuroraPreset>(PreviewActor->TargetAurora))
 		{
-			PreviewFlowPreset->AuroraElementsMap = OriginalFlowPreset->AuroraElementsMap;
-			PreviewActor->bAuroraElementsMapDirty = true;
+			PreviewFlowPreset->ShapeTexture = ElementsRenderTarget;
+			PreviewActor->bShapeTextureDirty = true;
 		}
 	}
 
@@ -1715,8 +2135,8 @@ void AVolumetricAurora::UpdatePreviewAurora()
 	// Update ElementsMap Reference
 	if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(PreviewPtr->TargetAurora))
 	{
-		FlowPreset->AuroraElementsMap = ElementsRenderTarget;
-		PreviewPtr->bAuroraElementsMapDirty = true;
+		FlowPreset->ShapeTexture = ElementsRenderTarget;
+		PreviewPtr->bShapeTextureDirty = true;
 	}
 
 	// Manually tick the preview actor
@@ -1781,388 +2201,3 @@ void AVolumetricAurora::DestroyPreviewAurora()
 }
 
 #endif
-
-void AVolumetricAurora::Tick(float DeltaTime)
-{
-	Super::Tick(DeltaTime);
-
-	if (bAuroraPlaying)
-	{
-		AuroraAccumulatedTime += DeltaTime * AuroraTimeScale;
-	}
-
-	UpdateMaterialTimeParameter();
-
-	if (TargetAurora && TargetAurora->GetClass() == UPotentialFlowAuroraPreset::StaticClass() && AuroraMaterialDynamic)
-	{
-		FlowTick(DeltaTime);
-		TargetAurora->UpdateMaterial(AuroraMaterialDynamic);
-	}
-}
-
-void AVolumetricAurora::UpdateMaterialTarget()
-{
-	if (!TargetAurora || !AuroraMaterialDynamic)
-	{
-		return;
-	}
-
-	TargetAurora->UpdateMaterial(AuroraMaterialDynamic);
-	VolumeBox->SetRelativeLocation(FVector(0.0f, 0.0f, TargetAurora->Altitude * 100000.0f));
-	VolumeBox->SetWorldRotation(FQuat::Identity);
-	VolumeBox->SetRelativeScale3D(FVector(TargetAurora->AuroraAreaExtent, TargetAurora->AuroraAreaExtent, TargetAurora->AuroraHeight) * 1000.0f);
-}
-
-void AVolumetricAurora::UpdateMaterialTimeParameter()
-{
-	if (!AuroraMaterialDynamic)
-	{
-		return;
-	}
-
-	AuroraMaterialDynamic->SetScalarParameterValue(
-		TEXT("AuroraTime"),
-		AuroraAccumulatedTime
-	);
-}
-
-#if WITH_EDITOR
-
-void AVolumetricAurora::ResetFlowSimulation()
-{
-	bForceResetSimulation = true;
-}
-
-void AVolumetricAurora::CaptureFlowSimulationCheckpoint()
-{
-	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
-	if (!FlowPreset)
-	{
-		UE_LOG(
-			LogTemp,
-			Warning,
-			TEXT("CaptureFlowSimulationCheckpoint failed: Not using PotentialFlowAuroraPreset")
-		);
-		return;
-	}
-
-	// Capture to instance only (not source - user must manually save)
-	FlowPreset->CaptureSimulationCheckpoint(GetName(), FlowSimulationAccumulatedTime);
-}
-
-#endif
-
-void AVolumetricAurora::ApplyPresetToTarget(UAuroraPresetBase* InPreset)
-{
-	if (!InPreset)	return;
-
-	Modify(); // Undo / Redo
-
-	TargetAurora = DuplicateObject<UAuroraPresetBase>(InPreset, this);
-	SourcePreset = InPreset;
-	if (TargetAurora)
-	{
-		TargetAurora->ClearFlags(RF_Standalone);
-		TargetAurora->SetFlags(RF_Transactional);
-
-		if (VolumeBox)
-		{
-			AuroraMaterialDynamic = VolumeBox->CreateAndSetMaterialInstanceDynamic(0);
-		}
-
-		UpdateMaterialTarget();
-		UpdateMaterialTimeParameter();
-	}
-
-	bControlPointsDirty = true;
-	bAuroraElementsMapDirty = true;
-
-	// Auto-restore checkpoint if new preset has one
-	UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora);
-	if (FlowPreset && FlowPreset->HasValidCheckpoint())
-	{
-		bForceResetSimulation = true;
-	}
-}
-
-
-
-FString AVolumetricAurora::GetPluginPath()
-{
-	return PluginPath;
-}
-
-// ============================================================================
-// Blueprint Control Functions Implementation
-// ============================================================================
-
-bool AVolumetricAurora::SetAuroraPreset(UAuroraPresetBase* NewPreset)
-{
-	if (!NewPreset)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("SetAuroraPreset: NewPreset is nullptr"));
-		return false;
-	}
-
-	// Apply preset to target
-	ApplyPresetToTarget(NewPreset);
-
-	UE_LOG(LogTemp, Log, TEXT("Aurora preset changed to: %s"), *NewPreset->GetName());
-	return true;
-}
-
-UAuroraPresetBase* AVolumetricAurora::GetAuroraPreset()
-{
-	return TargetAurora;
-}
-
-void AVolumetricAurora::SetAuroraEnabled(bool bEnabled)
-{
-	if (VolumeBox)
-	{
-		VolumeBox->SetVisibility(bEnabled);
-	}
-}
-
-void AVolumetricAurora::ToggleAuroraEnabled()
-{
-	if (VolumeBox)
-	{
-		VolumeBox->ToggleVisibility();
-	}
-}
-
-bool AVolumetricAurora::GetAuroraEnabled() const
-{
-	return VolumeBox ? VolumeBox->IsVisible() : false;
-}
-
-UAuroraPresetBase* AVolumetricAurora::GetSourcePreset() const
-{
-	return SourcePreset;
-}
-
-bool AVolumetricAurora::IsUsingPreset(UAuroraPresetBase* PresetToCheck) const
-{
-	if (!PresetToCheck)
-	{
-		return false;
-	}
-
-	// Compare with source preset (not duplicate TargetAurora)
-	return SourcePreset == PresetToCheck;
-}
-
-void AVolumetricAurora::DebugAuroraState()
-{
-	UE_LOG(LogTemp, Warning, TEXT("===== Aurora Debug State ====="));
-	UE_LOG(LogTemp, Warning, TEXT("VolumeBox: %s"), VolumeBox ? TEXT("Valid") : TEXT("NULL"));
-
-	// VolumeBox detailed info
-	if (VolumeBox)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("  - Visible: %s"), VolumeBox->IsVisible() ? TEXT("TRUE") : TEXT("FALSE"));
-		UE_LOG(LogTemp, Warning, TEXT("  - Hidden in Game: %s"), VolumeBox->bHiddenInGame ? TEXT("TRUE") : TEXT("FALSE"));
-		UE_LOG(LogTemp, Warning, TEXT("  - Location: %s"), *VolumeBox->GetComponentLocation().ToString());
-		UE_LOG(LogTemp, Warning, TEXT("  - Scale: %s"), *VolumeBox->GetComponentScale().ToString());
-		UE_LOG(LogTemp, Warning, TEXT("  - Material Count: %d"), VolumeBox->GetNumMaterials());
-
-		for (int32 i = 0; i < VolumeBox->GetNumMaterials(); i++)
-		{
-			UMaterialInterface* Mat = VolumeBox->GetMaterial(i);
-			UE_LOG(LogTemp, Warning, TEXT("  - Material[%d]: %s"), i, Mat ? *Mat->GetName() : TEXT("NULL"));
-		}
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("Material Dynamic: %s"), AuroraMaterialDynamic ? TEXT("Valid") : TEXT("NULL"));
-
-	// Material parameters check
-	if (AuroraMaterialDynamic && TargetAurora)
-	{
-		float TestIntensity = 0.0f;
-		if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: %f"), TestIntensity);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - Intensity Parameter: NOT FOUND!"));
-		}
-
-		UTexture* ShapeTexture = nullptr;
-		if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL"));
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture Parameter: NOT FOUND!"));
-		}
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("TargetAurora: %s"), TargetAurora ? *TargetAurora->GetName() : TEXT("NULL"));
-
-	// Preset detailed info
-	if (TargetAurora)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("  - Intensity: %f"), TargetAurora->Intensity);
-		UE_LOG(LogTemp, Warning, TEXT("  - Altitude: %f km"), TargetAurora->Altitude);
-		UE_LOG(LogTemp, Warning, TEXT("  - ShapeTexture: %s"), TargetAurora->ShapeTexture ? *TargetAurora->ShapeTexture->GetName() : TEXT("NULL"));
-
-		if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - Type: Noise Aurora"));
-			UE_LOG(LogTemp, Warning, TEXT("  - Activity: %f"), NoisePreset->Activity);
-		}
-		else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - Type: Potential Flow Aurora"));
-			UE_LOG(LogTemp, Warning, TEXT("  - Control Points: %d"), FlowPreset->ControlPoints.Num());
-		}
-		else if (USplineAuroraPreset* SplinePreset = Cast<USplineAuroraPreset>(TargetAurora))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  - Type: Spline Aurora"));
-		}
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("SourcePreset: %s"), SourcePreset ? *SourcePreset->GetName() : TEXT("NULL"));
-	UE_LOG(LogTemp, Warning, TEXT("Is Playing: %s"), bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"));
-	UE_LOG(LogTemp, Warning, TEXT("Time Scale: %f"), AuroraTimeScale);
-	UE_LOG(LogTemp, Warning, TEXT("Accumulated Time: %f"), AuroraAccumulatedTime);
-	UE_LOG(LogTemp, Warning, TEXT("Actor Hidden: %s"), IsHidden() ? TEXT("TRUE") : TEXT("FALSE"));
-	UE_LOG(LogTemp, Warning, TEXT("Actor Location: %s"), *GetActorLocation().ToString());
-	UE_LOG(LogTemp, Warning, TEXT("=============================="));
-}
-
-void AVolumetricAurora::DisplayAuroraDebugInfo(bool bShowDetailed)
-{
-	if (!GEngine)
-	{
-		return;
-	}
-
-	// Screen position offset
-	int32 LineOffset = 0;
-	const float DisplayTime = 0.0f; // 0 = update every frame
-	const FColor TitleColor = FColor::Cyan;
-	const FColor ValueColor = FColor::White;
-	const FColor WarningColor = FColor::Yellow;
-	const FColor ErrorColor = FColor::Red;
-
-	// Title
-	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
-		TEXT("===== Aurora Debug Info ====="));
-
-	// Basic state
-	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-		FString::Printf(TEXT("Playing: %s | TimeScale: %.2f | Time: %.2f"),
-			bAuroraPlaying ? TEXT("TRUE") : TEXT("FALSE"),
-			AuroraTimeScale,
-			AuroraAccumulatedTime));
-
-	// Visibility
-	FColor VisibilityColor = (VolumeBox && VolumeBox->IsVisible()) ? ValueColor : ErrorColor;
-	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, VisibilityColor,
-		FString::Printf(TEXT("Visible: %s | Hidden: %s"),
-			(VolumeBox && VolumeBox->IsVisible()) ? TEXT("TRUE") : TEXT("FALSE"),
-			IsHidden() ? TEXT("TRUE") : TEXT("FALSE")));
-
-	// Preset info
-	if (TargetAurora)
-	{
-		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-			FString::Printf(TEXT("Preset: %s | Intensity: %.1f"),
-				*TargetAurora->GetName(),
-				TargetAurora->Intensity));
-	}
-	else
-	{
-		GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
-			TEXT("Preset: NULL"));
-	}
-
-	// Detailed info
-	if (bShowDetailed)
-	{
-		// Material info
-		if (VolumeBox)
-		{
-			UMaterialInterface* Mat = VolumeBox->GetMaterial(0);
-			FColor MatColor = Mat ? ValueColor : ErrorColor;
-			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, MatColor,
-				FString::Printf(TEXT("Material: %s"),
-					Mat ? *Mat->GetName() : TEXT("NULL")));
-		}
-
-		if (AuroraMaterialDynamic)
-		{
-			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-				FString::Printf(TEXT("MID: %s"), *AuroraMaterialDynamic->GetName()));
-
-			// Check material parameters
-			float TestIntensity = 0.0f;
-			if (AuroraMaterialDynamic->GetScalarParameterValue(TEXT("Intensity"), TestIntensity))
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					FString::Printf(TEXT("  Intensity Param: %.1f"), TestIntensity));
-			}
-			else
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
-					TEXT("  Intensity Param: NOT FOUND"));
-			}
-
-			UTexture* ShapeTexture = nullptr;
-			if (AuroraMaterialDynamic->GetTextureParameterValue(TEXT("ShapeTexture"), ShapeTexture))
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					FString::Printf(TEXT("  ShapeTexture: %s"),
-						ShapeTexture ? *ShapeTexture->GetName() : TEXT("NULL")));
-			}
-			else
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, WarningColor,
-					TEXT("  ShapeTexture: NOT FOUND"));
-			}
-		}
-		else
-		{
-			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ErrorColor,
-				TEXT("MID: NULL"));
-		}
-
-		// Preset type
-		if (TargetAurora)
-		{
-			if (UNoiseAuroraPreset* NoisePreset = Cast<UNoiseAuroraPreset>(TargetAurora))
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					FString::Printf(TEXT("Type: Noise | Activity: %.3f"), NoisePreset->Activity));
-			}
-			else if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora))
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					FString::Printf(TEXT("Type: Flow | ControlPoints: %d"), FlowPreset->ControlPoints.Num()));
-			}
-			else if (Cast<USplineAuroraPreset>(TargetAurora))
-			{
-				GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-					TEXT("Type: Spline"));
-			}
-		}
-
-		// Location/Scale
-		if (VolumeBox)
-		{
-			FVector Loc = VolumeBox->GetComponentLocation();
-			FVector Scale = VolumeBox->GetComponentScale();
-			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-				FString::Printf(TEXT("Loc: %.0f, %.0f, %.0f"), Loc.X, Loc.Y, Loc.Z));
-			GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, ValueColor,
-				FString::Printf(TEXT("Scale: %.0f, %.0f, %.0f"), Scale.X, Scale.Y, Scale.Z));
-		}
-	}
-
-	GEngine->AddOnScreenDebugMessage(LineOffset++, DisplayTime, TitleColor,
-		TEXT("============================"));
-}
