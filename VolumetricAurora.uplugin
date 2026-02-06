@@ -1,18 +1,17 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.1",
+	"VersionName": "1.0",
 	"FriendlyName": "Volumetric Aurora",
 	"Description": "Volumetric Aurora is a real-time aurora rendering plugin for Unreal Engine, designed to reproduce diverse real-world aurora shapes with flexible, art-directed control. It lets you create auroras that feel present in the sky with depth and motion, offering a wide range of looks from subtle night ambience to dramatic cinematic shots.",
 	"Category": "Other",
 	"CreatedBy": "R&B",
-	"CreatedByURL": "",
-	"DocsURL": "",
+	"CreatedByURL": "https://riskandbenefit.github.io/VolumetricAurora_Docs",
+	"DocsURL": "https://riskandbenefit.github.io/VolumetricAurora_Docs",
 	"MarketplaceURL": "com.epicgames.launcher://ue/Fab/product/57cba704-cfa8-4014-b6c2-b582822ce3fc",
 	"SupportURL": "",
 	"EngineVersion": "5.7.0",
 	"CanContainContent": true,
-	"IsBetaVersion": true,
 	"Installed": true,
 	"Modules": [
 		{

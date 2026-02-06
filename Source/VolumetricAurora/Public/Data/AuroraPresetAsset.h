@@ -9,9 +9,11 @@
 #include "AuroraPresetAsset.generated.h"
 
 UENUM(BlueprintType)
-enum class EFadeType : uint8
+enum class EEdgeFadeMode : uint8
 {
+	/** 중심에서 밖으로 원형으로 페이드 아웃 (거리 기반) */
 	Radial      UMETA(DisplayName = "Radial"),
+	/** 박스 형태(X, Y축 각각의 거리)로 페이드 아웃 */
 	Box         UMETA(DisplayName = "Box")
 };
 
@@ -22,8 +24,11 @@ enum class EFadeType : uint8
 UENUM(BlueprintType)
 enum class ETextureResolution : uint8
 {
+	/** Low resolution for optimal performance. Suitable for soft, diffuse aurora effects. */
 	Res512		UMETA(DisplayName = "512"),
+	/** Balanced resolution providing a good trade-off between detail and performance. */
 	Res1024		UMETA(DisplayName = "1024"),
+	/** High resolution for sharp, detailed aurora curtains at a higher GPU cost. */
 	Res2048		UMETA(DisplayName = "2048")
 };
 
@@ -39,7 +44,7 @@ inline int32 GetResolutionValue(ETextureResolution Resolution)
 	case ETextureResolution::Res512:  return 512;
 	case ETextureResolution::Res1024: return 1024;
 	case ETextureResolution::Res2048: return 2048;
-	default: return 2048;
+	default: return 1024;
 	}
 }
 
@@ -58,49 +63,141 @@ public:
 #if WITH_EDITOR
 	virtual void PostEditChangeChainProperty(FPropertyChangedChainEvent& PropertyChangedEvent) override;
 #endif
-
+	/**
+	 * Texture that defines the aurora's base shape and pattern
+	 * Usage varies by preset type:
+	 * - Noise: Continuous noise texture for curtain ripples
+	 * - Spline: Distance field texture storing the path information
+	 * - Flow: Particle emission map defining spawn regions
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 1))
 	UTexture* ShapeTexture = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 2))
-	float Intensity = 10.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 4))
-	float Density = 1.0f;
+	/** Overall brightness of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 2,
+		Delta = "0.1"))
+	double Intensity = 10.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 6, HideAlphaChannel))
+	/** Controls how thick or opaque the aurora appears (higher values create denser aurora) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 3,
+		Delta = "0.01"))
+	double Density = 1.0f;
+
+	/** Animation speed of the aurora movement */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 4,
+		UIMin = "0.0", UIMax = "5.0", Delta = "0.01"))
+	float Speed = 1.0f;
+
+	/** Color at the top of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 5))
 	FLinearColor TopColor = FLinearColor(0.22f, 0.26f, 0.5f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 7, HideAlphaChannel))
+	/** Color at the middle of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 6))
 	FLinearColor MidColor = FLinearColor(0.25f, 0.3f, 0.5f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 8, HideAlphaChannel))
+	/** Color at the bottom of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 7))
 	FLinearColor BottomColor = FLinearColor(0.23f, 0.65f, 0.66f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 9, ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
+
+	/** Height range where the middle color appears (X: start height, Y: end height) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 8,
+		ClampMin = "0.0", ClampMax = "1.0",
+		UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
 	FVector2f MidColorHeight = FVector2f(0.5f, 0.5f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 10, UIMin = "0.0", Units = "km", ForceUnits = "km"))
-	float Altitude = 1.1f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 11, UIMin = "0.0"))
-	float AuroraAreaExtent = 50.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 12, UIMin = "0.0"))
-	float AuroraHeight = 1.2f;
+	/** Altitude of the aurora above ground level (in km) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 9,
+		Units = "km", ForceUnits = "km",
+		UIMin = "0.0", Delta = "0.01"))
+	double Altitude = 1.1f;
+	/** Horizontal extent of the aurora area */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 10,
+		UIMin = "0.0", Delta = "0.1"))
+	double AuroraAreaExtent = 50.0f;
+	/** Vertical height of the aurora volume */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 11,
+		UIMin = "0.0", Delta = "0.01"))
+	double AuroraHeight = 1.2f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 13))
-	EFadeType FadeType = EFadeType::Box;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 14, UIMin = "0.0", UIMax = "1.0"))
-	float FadeStartRatio = 0.5f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 15))
+	/** Method for fading out the aurora at the edges */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 12))
+	EEdgeFadeMode EdgeFadeMode = EEdgeFadeMode::Box;
+	/** Softness of the edge fade (0 = sharp cut, 1 = smooth gradual fade) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 13,
+		ClampMin = "0.0", ClampMax = "1.0",
+		UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
+	float EdgeFadeSoftness = 0.5f;
+
+	/** How quickly the aurora fades out toward the top (higher values fade faster) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails", meta = (DisplayPriority = 14,
+		ClampMin = "0.01",
+		UIMin = "0.01", UIMax = "10.0", Delta = "0.01"))
 	float HeightFalloff = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look")
+	/** Enable film grain effect for a more organic look */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance", meta = (DisplayPriority = 1))
 	bool bEnableFilmGrain = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look", meta = (EditCondition = "bEnableFilmGrain", ClampMin = "0.0", UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
+	/** Strength of the film grain noise */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance", meta = (DisplayPriority = 2,
+		EditCondition = "bEnableFilmGrain",
+		ClampMin = "0.0",
+		UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
 	float FilmGrainIntensity = 0.15f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Tone", meta = (DisplayPriority = 1, ClampMin = "0.001", UIMin = "0.001", UIMax = "0.05", Delta = "0.001"))
+	/** Use straight alpha blending for the color palette */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Color", meta = (DisplayPriority = 1))
+	bool bUseStraightAlphaPalette = false;
+
+	/** Strength of the color displacement noise, creating a shimmering ripple effect across color bands. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Color", meta = (DisplayPriority = 2,
+		ClampMin = "0.0", ClampMax = "0.25",
+		UIMin = "0.0", UIMax = "0.25", Delta = "0.001"))
+	float ColorShiftStrength = 0.05f;
+
+	/** Enable additional color tinting on dense structural regions of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Color", meta = (DisplayPriority = 3))
+	bool bEnableStructureColoring = false;
+	/** Tint color applied to the outer edges of dense structures */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Color", meta = (DisplayPriority = 4,
+		HideAlphaChannel, EditCondition = "bEnableStructureColoring"))
+	FLinearColor SoftTint = FLinearColor(0.10f, 0.85f, 0.35f, 1.0f);
+	/** Tint color applied to the densest core of structures */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Color", meta = (DisplayPriority = 5,
+		HideAlphaChannel, EditCondition = "bEnableStructureColoring"))
+	FLinearColor CoreTint = FLinearColor(0.20f, 0.75f, 1.00f, 1.0f);
+
+	/** Pivot point for tone redistribution (brighter regions get brighter, darker get darker) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Tone", meta = (DisplayPriority = 1,
+		ClampMin = "0.001",
+		UIMin = "0.001", UIMax = "0.05", Delta = "0.001"))
 	float EmissiveTonePivot = 0.02f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Tone", meta = (DisplayPriority = 2, ClampMin = "0.0", UIMin = "0.0", UIMax = "2.0", Delta = "0.01"))
+	/** Contrast strength of the aurora emission (1.0 = neutral, higher = more contrast) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Tone", meta = (DisplayPriority = 2,
+		ClampMin = "0.0",
+		UIMin = "0.0", UIMax = "2.0", Delta = "0.01"))
 	float EmissiveContrast = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Tone", meta = (DisplayPriority = 2, ClampMin = "0.0", UIMin = "0.0", UIMax = "2.0", Delta = "0.01"))
+	/** Color saturation of the aurora (0 = grayscale, 1 = natural, >1 = oversaturated) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Tone", meta = (DisplayPriority = 3,
+		ClampMin = "0.0",
+		UIMin = "0.0", UIMax = "2.0", Delta = "0.01"))
 	float EmissiveSaturation = 1.0f;
+
+	/** Enable enhanced brightness on dense structural regions of the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Structure", meta = (DisplayPriority = 1,
+		ClampMin = "0.0", ClampMax = "1.0",
+		UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
+	bool bEnableEmissiveStructure = false;
+	/** Density threshold for determining what counts as a bright structure */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Structure", meta = (DisplayPriority = 2,
+		EditCondition = "bEnableEmissiveStructure",
+		ClampMin = "0.0",
+		UIMin = "0.0", UIMax = "0.05", Delta = "0.001"))
+	float EmissiveStructurePivot = 0.02f;
+	/** Selectivity of structure brightness (higher = only well-defined bands glow, lower = more diffuse glow) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Appearance|Structure", meta = (DisplayPriority = 3,
+		EditCondition = "bEnableEmissiveStructure",
+		ClampMin = "0.001",
+		UIMin = "0.001", UIMax = "3.0", Delta = "0.01"))
+	float EmissiveStructureSelectivity = 1.0f;
 
 	bool IsIdentical(UAuroraPresetBase* Other);
 
@@ -109,49 +206,44 @@ public:
 	virtual void UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance);
 };
 
-UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
+UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced, meta = (PrioritizeCategories = "Aurora|PresetDetails|NoiseSettings Aurora|PresetDetails|Appearance"))
 class VOLUMETRICAURORA_API UNoiseAuroraPreset : public UAuroraPresetBase
 {
 	GENERATED_BODY()
+
 public:
-
 	UNoiseAuroraPreset();
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
-	float Activity = 0.005f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (UIMin = "0.0", UIMax = "5.0"))
+	/** Frequency of the aurora curtain folds (higher values create tighter, more detailed ripples) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 1,
+		UIMin = "0.01", UIMax = "2.0", Delta = "0.01"))
 	float ShapeFrequency = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (UIMin = "0.0", UIMax = "1.0"))
-	FVector2f ShapeSpeed = FVector2f(0.001f, 0.001f);
+	/** Speed and direction the aurora drifts across the sky */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 2,
+		UIMin = "-0.1", UIMax = "0.1", Delta = "0.001"))
+	FVector2f ScrollVelocity = FVector2f(0.001f, 0.001f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
+	/** Smoothness of the curtain folds (lower = sharp thin edges, higher = soft billowy shapes) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 4,
+		UIMin = "0.01", UIMax = "1.0", Delta = "0.01"))
 	float Smoothness = 0.2f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
-	float MaskScaleMultiplier = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
-	FVector2D MaskSpeedMultiplier = FVector2D(1.0f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (UIMin = "0.0", UIMax = "1.0"))
+	/** Frequency of the mask pattern that creates gaps and breaks in the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 5,
+		UIMin = "0.01", UIMax = "2.0", Delta = "0.01"))
+	float MaskFrequency = 1.0f;
+	/** Speed the mask pattern moves across the aurora */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 6,
+		UIMin = "-0.1", UIMax = "0.1", Delta = "0.001"))
+	FVector2D MaskScrollVelocity = FVector2D(0.001f, 0.001f);
+	/** How much the mask can hide the aurora (1.0 = can completely hide, 0 = no masking) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|NoiseSettings", meta = (DisplayPriority = 7,
+		UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
 	float MaskOpacity = 0.9f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Color", meta = (DisplayPriority = 1))
-	bool bUseStructureColoring = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Color", meta = (DisplayPriority = 2, HideAlphaChannel))
-	FLinearColor SoftTint = FLinearColor(0.10f, 0.85f, 0.35f, 1.0f);
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Color", meta = (DisplayPriority = 3, HideAlphaChannel))
-	FLinearColor CoreTint = FLinearColor(0.20f, 0.75f, 1.00f, 1.0f);
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Structure", meta = (DisplayPriority = 1, ClampMin = "0.0", UIMin = "0.0", UIMax = "0.05", Delta = "0.001"))
-	float EmissiveStructurePivot = 0.02f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Structure", meta = (DisplayPriority = 2, ClampMin = "0.001", UIMin = "0.001", UIMax = "3.0", Delta = "0.01"))
-	float EmissiveStructureSelectivity = 1.0f;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Look|Structure", meta = (DisplayPriority = 3, ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0", Delta = "0.01"))
-	float EmissiveStructureAmount = 0.0f;
 
 	virtual void UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance) override;
 };
 
-UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
+UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced, meta = (PrioritizeCategories = "Aurora|PresetDetails|SplineSettings Aurora|PresetDetails|Appearance"))
 class VOLUMETRICAURORA_API USplineAuroraPreset : public UAuroraPresetBase
 {
 	GENERATED_BODY()
@@ -159,39 +251,25 @@ public:
 
 	USplineAuroraPreset();
 
-	// The amount of vertical streaking applied to the aurora
-	// Values above 0.2 may cause extreme distortion
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (
-		UIMin = "0.0",
-		UIMax = "0.2",
-		Logarithmic = "true"
-		))
+	/** Amount of vertical streaking applied to the aurora (values above 0.2 may cause extreme distortion) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|SplineSettings", meta = (DisplayPriority = 1,
+		UIMin = "0.0", UIMax = "0.2", Delta = "0.001", Logarithmic = "true"))
 	float Distortion = 0.04f;
 
-	// Adjust how fast the vertical streaks jitter and shift
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (
-		UIMin = "-1.0",
-		UIMax = "1.0",
-		Logarithmic = "true"
-		))
-	float DistortionSpeed = 0.02f;
-
-	// Controls the distortion fade-off based on height. 
-	// At 0, distortion is uniform, and Higher values reduce distortion at the top
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced", meta = (
-		UIMin = "0.0",
-		UIMax = "10.0"
-		))
+	/** How distortion fades with height (0 = uniform, higher = less distortion at the top) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|SplineSettings", meta = (DisplayPriority = 2,
+		UIMin = "0.0", UIMax = "10.0", Delta = "0.01"))
 	float DistortionHeightFalloff = 0.0f;
 
-	// Aurora thickness along the spline path
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|Advanced")
+	/** Thickness of the aurora along the spline path */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|PresetDetails|SplineSettings", meta = (DisplayPriority = 3,
+		UIMin = "0.0", UIMax = "1000.0", Delta = "0.1"))
 	float Thickness = 350.0f;
 
 	virtual void UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance) override;
 };
 
-UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
+UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced, meta = (PrioritizeCategories = "Aurora|PresetDetails|FlowSettings Aurora|PresetDetails|Appearance"))
 class VOLUMETRICAURORA_API UPotentialFlowAuroraPreset : public UAuroraPresetBase
 {
 	GENERATED_BODY()
@@ -222,121 +300,98 @@ public:
 	UPROPERTY()
 	UTextureRenderTarget2D* DisplayBuffer = nullptr;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	/** Show visual markers for control points in the editor */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 1))
 	bool bDisplayControlPoints = true;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
-		meta=(EditCondition="bDisplayControlPoints"))
+	/** Show the range circles for control point attenuation */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 2,
+		EditCondition = "bDisplayControlPoints"))
 	bool bDisplayAttenuationRange = true;
-	
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
-		meta=(EditCondition="bDisplayControlPoints"))
+
+	/** Size of the control point markers */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 3,
+		EditCondition = "bDisplayControlPoints"))
 	float DisplaySize = 5.f;
 
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow",
-		meta=(EditCondition="bDisplayControlPoints"))
+	/** Z-axis position offset for displaying control point markers */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 4,
+		EditCondition = "bDisplayControlPoints"))
 	float DisplayZPos = 0.f;
-	
+
 	// ========================================================================
 	// Simulation Parameters
 	// ========================================================================
 
-	/** Simulation texture resolution */
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
-	ETextureResolution SimulationResolution = ETextureResolution::Res2048;
+	/** Resolution of the simulation texture (higher = more detail but more GPU cost) */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 5))
+	ETextureResolution SimulationResolution = ETextureResolution::Res1024;
 
-	/** Whether to reset simulation when flow elements (ControlPoints, AuroraElementsMap) are changed */
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
+	/** Reset simulation when control points or shape texture are changed */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 6))
 	bool bResetSimulationOnElementChange = true;
 
-	/** Base flow velocity (X=horizontal, Y=vertical direction and speed) */
-	UPROPERTY(
-		EditAnywhere,
-		Category = "Aurora|PresetDetails|Flow",
-		meta = (
-			UIMin = "0.0", UIMax = "2.0",
-			ClampMin = "0.0"))
-	float FlowTimeScale = 1.f;
-
-	/** Base flow velocity (X=horizontal, Y=vertical direction and speed) */
-	UPROPERTY(
-		EditAnywhere,
-		Category = "Aurora|PresetDetails|Flow",
-		meta = (
-			ClampMin = "-1.0", ClampMax = "1.0",
-			UIMin = "-1.0", UIMax = "1.0"))
+	/** Base flow direction and speed of the aurora */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 7,
+		ClampMin = "-1.0", ClampMax = "1.0",
+		UIMin = "-1.0", UIMax = "1.0"))
 	FVector2D BaseFlow = FVector2D(0.1, 0.0);
 
 	// ========================================================================
 	// Control Points
 	// ========================================================================
 
-	/** Flow field control points (source, sink, vortex, spiral, curl, dipole) */
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow", meta = (TitleProperty = "Type"))
+	/** Control points that influence the flow and behavior of the aurora */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 8,
+		TitleProperty = "Type"))
 	TArray<FAuroraFlowElement> ControlPoints;
 
 	// ========================================================================
 	// Aurora Elements
 	// ========================================================================
 
-	/** Texture map defining emitter regions (R channel) and fade zones (G channel) */
-	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|Flow")
-	UTexture* AuroraElementsMap = nullptr;
-
 	/**
 	 * @brief Captured simulation state texture
 	 * Stores flow simulation snapshot for resuming from specific point
 	 * Format: PF_FloatRGBA (HDR), saved as permanent asset
 	 */
-	UPROPERTY(EditAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
-		ToolTip="Captured simulation state. Use 'Capture Current State' button to create checkpoint."))
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 8))
 	TObjectPtr<UTexture2D> SimulationCheckpointTexture = nullptr;
 
 	/**
 	 * @brief Simulation time when checkpoint was captured
 	 * Used to restore accurate time state during checkpoint restoration
 	 */
-	UPROPERTY(VisibleAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
-		ToolTip="Timestamp when checkpoint was captured (in seconds)"))
+	UPROPERTY(VisibleAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 9))
 	float SimulationCheckpointTime = 0.0f;
 
 	/**
 	 * @brief Resolution of captured checkpoint texture
 	 * Used for validation during restore to ensure dimension match
 	 */
-	UPROPERTY(VisibleAnywhere, Category="Aurora|PresetDetails|Flow", meta=(
-		ToolTip="Resolution of checkpoint texture (must match current simulation resolution)"))
+	UPROPERTY(VisibleAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 10))
 	int32 SimulationCheckpointResolution = 0;
 
 	// ========================================================================
 	// Emitter Noise Parameters
 	// ========================================================================
 
-	/** Spatial frequency of emitter noise (higher = more detail) */
-	UPROPERTY(
-		EditAnywhere,
-		Category = "Aurora|PresetDetails|Flow",
-		meta = (
-			ClampMin = "0.01", ClampMax = "1.0",
-			UIMin = "0.01", UIMax = "1.0"))
+	/** Detail level of the emission pattern (higher = more varied emission) */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 11,
+		ClampMin = "0.01", ClampMax = "1.0",
+		UIMin = "0.01", UIMax = "1.0"))
 	float EmitterNoiseFrequency = 0.01f;
 
-	/** Animation speed of emitter noise pattern */
-	UPROPERTY(
-		EditAnywhere,
-		Category = "Aurora|PresetDetails|Flow",
-		meta = (
-			ClampMin = "0.01", ClampMax = "1.0",
-			UIMin = "0.01", UIMax = "1.0"))
+	/** Animation speed of the emission pattern variation */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 12,
+		ClampMin = "0.01", ClampMax = "1.0",
+		UIMin = "0.01", UIMax = "1.0"))
 	float EmitterNoiseSpeed = 0.05f;
 
-	/** Strength/amplitude of emitter noise variation */
-	UPROPERTY(
-		EditAnywhere,
-		Category = "Aurora|PresetDetails|Flow",
-		meta = (
-			ClampMin = "0.0", ClampMax = "1.0",
-			UIMin = "0.0", UIMax = "1.0"))
+	/** Strength of the emission pattern variation */
+	UPROPERTY(EditAnywhere, Category = "Aurora|PresetDetails|FlowSettings", meta = (DisplayPriority = 13,
+		ClampMin = "0.0", ClampMax = "1.0",
+		UIMin = "0.0", UIMax = "1.0"))
 	float EmitterNoiseStrength = 0.2f;
 
 	virtual void UpdateMaterial(UMaterialInstanceDynamic* MaterialInstance) override;

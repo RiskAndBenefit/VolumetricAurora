@@ -48,66 +48,41 @@ class VOLUMETRICAURORA_API AVolumetricAurora : public AActor
 	friend class FVolumetricAuroraDetailsCustomization;
 
 public:
+	// ========================================================================
+	// Constructor
+	// ========================================================================
 	AVolumetricAurora();
 
-protected:
-	virtual void BeginPlay() override;
-
-	virtual void OnConstruction(const FTransform& Transform) override;
-
-#if WITH_EDITOR
-	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
-
-	virtual void PostActorCreated() override;
-
-	virtual void PostLoad() override;
-#endif
-
-
-public:
+	// ========================================================================
+	// Override Functions
+	// ========================================================================
 	virtual void Tick(float DeltaTime) override;
 	virtual bool ShouldTickIfViewportsOnly() const override;
 
+	// ========================================================================
+	// Public Functions
+	// ========================================================================
 	void FlowTick(float DeltaTime);
-
-public:
-
-	UPROPERTY(VisibleAnywhere, Category = "Aurora", Instanced, meta = (DisplayName = "Preset Details", NoClear, DisallowNull))
-	TObjectPtr<UAuroraPresetBase> TargetAurora;
-
-	// OriginalPreset for Target
-	UPROPERTY()
-	TObjectPtr<UAuroraPresetBase> SourcePreset;
-
-	// === Time Control ===
-	float AuroraAccumulatedTime = 0.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|Time")
-	bool bAuroraPlaying = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|Time", meta = (UIMin = "0.0", UIMax = "10.0", Delta = "0.01"))
-	float AuroraTimeScale = 1.0f;
-
-	float FlowSimulationAccumulatedTime = 0.0f;
 
 	UFUNCTION()
 	void UpdateMaterialTimeParameter();
 
-#if WITH_EDITOR
-	UFUNCTION()
-	void ResetFlowSimulation();
+	void ApplyPresetToTarget(UAuroraPresetBase* InPreset);
 
-	/**
-	 * @brief Capture current flow simulation state as checkpoint
-	 * Stores current FrontBuffer and simulation time to preset
-	 */
 	UFUNCTION()
-	void CaptureFlowSimulationCheckpoint();
-#endif
+	FString GetPluginPath();
 
 	// ========================================================================
 	// Blueprint Control Functions
 	// ========================================================================
+
+	/**
+	 * @brief check if NewPreset is same as source preset
+	 * @param NewPreset Aurora preset to compare
+	 * @return true if two presets are same
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
+	bool IsSameAsSource(UAuroraPresetBase* NewPreset);
 
 	/**
 	 * @brief Dynamically change aurora preset at runtime
@@ -123,7 +98,7 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
 	UAuroraPresetBase* GetAuroraPreset();
-	
+
 	/**
 	 * @brief Show/hide aurora rendering
 	 * @param bEnabled true to show, false to hide
@@ -136,7 +111,7 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Aurora|Control")
 	bool GetAuroraEnabled() const;
-	
+
 	/**
 	 * @brief Toggle aurora visibility
 	 */
@@ -172,19 +147,146 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Aurora|Debug")
 	void DisplayAuroraDebugInfo(bool bShowDetailed = false);
 
+	// ========================================================================
+	// Public Variables
+	// ========================================================================
+	UPROPERTY(VisibleAnywhere, Category = "Aurora", Instanced, meta = (DisplayName = "Preset Details", NoClear, DisallowNull))
+	TObjectPtr<UAuroraPresetBase> TargetAurora;
+
+	// OriginalPreset for Target
+	UPROPERTY()
+	TObjectPtr<UAuroraPresetBase> SourcePreset;
+
+	// === Time Control ===
+	float AccumulatedTime = 0.0f;
+	float UnscaledTime = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Aurora|Time")
+	bool bAuroraPlaying = true;
+
 	UPROPERTY(VisibleAnywhere, Category = "HideCategory")
 	TObjectPtr<USceneComponent> SceneRoot;
 
 	UPROPERTY()
 	TObjectPtr<UStaticMeshComponent> VolumeBox;
 
-	void ApplyPresetToTarget(UAuroraPresetBase* InPreset);
+protected:
+	// ========================================================================
+	// Override Functions
+	// ========================================================================
+	virtual void BeginPlay() override;
 
-	UFUNCTION()
-	FString GetPluginPath();
+	virtual void OnConstruction(const FTransform& Transform) override;
 
+private:
+	// ========================================================================
+	// Private Functions
+	// ========================================================================
+	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
+	void UpdateMaterialTarget();
+
+	/** Execute aurora flow simulation compute shader pass */
+	void SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPreset, float DeltaTime);
+
+	/** Bake obstacle distance field using Jump Flooding Algorithm */
+	void BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset* FlowPreset);
+
+	// ========================================================================
+	// Private Variables
+	// ========================================================================
+
+	// Transient: Not saved to disk
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> AuroraMaterialDynamic = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UAuroraPresetBase> DefaultAurora = nullptr;
+
+	/** Flag to force simulation reset (triggered by manual reset button) */
+	bool bForceResetSimulation = false;
+
+	/** Flag indicating control points need GPU buffer update */
+	bool bControlPointsDirty = true;
+
+	/** Flag indicating aurora elements map needs update */
+	bool bShapeTextureDirty = true;
+
+	/** Track previous aurora elements map to detect content changes */
+	UPROPERTY()
+	UTexture* PreviousShapeTexture = nullptr;
+
+	/** Previous aurora elements resource pointer for change detection */
+	FTextureResource* PreviousAuroraElementsResource = nullptr;
+
+	/** Control points type info */
+	TArray<FControlPointInfoGPU> ControlPointsInfo;
+
+	/** Single force control points info */
+	TArray<FSingleForceControlPointGPU> SingleForceControlPoints;
+
+	/** Double force control points info */
+	TArray<FDoubleForceControlPointGPU> DoubleForceControlPoints;
+
+	/** Triple force control points info */
+	TArray<FTripleForceControlPointGPU> TripleForceControlPoints;
+
+	/** Dipole control points info */
+	TArray<FDipoleControlPointGPU> DipoleControlPoints;
+
+	/** Curl control points info */
+	TArray<FCurlControlPointGPU> CurlControlPoints;
+
+	/** Warp control points info */
+	TArray<FWarpControlPointGPU> WarpControlPoints;
+
+	float MapSize = 50000.0f;
+
+	// Preset folder path cache
+	UPROPERTY()
+	FString PresetFolder;
+
+	// Plugin path cache
+	UPROPERTY()
+	FString PluginPath;
+
+#if WITH_EDITOR
+	// ========================================================================
+	// Editor-Only Override Functions (protected)
+	// ========================================================================
+protected:
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+	virtual void PostEditUndo() override;
+
+	virtual void PostActorCreated() override;
+
+	virtual void PostLoad() override;
+
+	// ========================================================================
+	// Editor-Only Public Functions
+	// ========================================================================
 public:
+	UFUNCTION()
+	void ResetFlowSimulation();
+
+	/**
+	 * @brief Capture current flow simulation state as checkpoint
+	 * Stores current FrontBuffer and simulation time to preset
+	 */
+	UFUNCTION()
+	void CaptureFlowSimulationCheckpoint();
+
+	// ========================================================================
+	// Editor-Only Private Functions
+	// ========================================================================
+private:
+	void RenderControlPointsDebug() const;
+#endif
+
 #if WITH_EDITORONLY_DATA
+	// ========================================================================
+	// Editor-Only Public Variables
+	// ========================================================================
+public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "HideCategory")
 	class UDFBakerComponentBase* DFBakerComponent;
 
@@ -226,18 +328,6 @@ public:
 	 * to inspect the aurora from any angle while painting elements.
 	 */
 	TSharedPtr<SAuroraPreviewViewport> EditorPreviewViewport;
-
-	/**
-	* @brief Initialize render target for texture painting
-	*/
-	void InitializeElementsRenderTarget();
-
-	/**
-	* @brief Create simple material for texture copy operation
-	* @param SourceTexture Texture to copy from
-	* @return MaterialInstanceDynamic configured for texture copy
-	*/
-	UMaterialInstanceDynamic* CreateSimpleMaterialForTextureCopy(UTexture* SourceTexture);
 
 	// ========================================================================
 	// Preview Aurora System (for Paint Window)
@@ -296,13 +386,33 @@ public:
 	UPROPERTY(Transient)
 	UTextureRenderTarget2D* PreviewCaptureTarget = nullptr;
 
+	// ========================================================================
+	// Texture Paint System Functions
+	// ========================================================================
+
+	/**
+	* @brief Initialize render target for texture painting
+	*/
+	void InitializeElementsRenderTarget();
+
+	/**
+	* @brief Create simple material for texture copy operation
+	* @param SourceTexture Texture to copy from
+	* @return MaterialInstanceDynamic configured for texture copy
+	*/
+	UMaterialInstanceDynamic* CreateSimpleMaterialForTextureCopy(UTexture* SourceTexture);
+
+	// ========================================================================
+	// Preview Aurora System Functions
+	// ========================================================================
+
 	/**
 	 * @brief Create and initialize preview aurora actor for paint window
 	 *
 	 * Workflow:
 	 * 1. Spawn new VolumetricAurora in Editor World at fixed position
 	 * 2. Duplicate current Preset settings to preview actor
-	 * 3. Connect ElementsRenderTarget to preview's AuroraElementsMap
+	 * 3. Connect ElementsRenderTarget to preview's ShapeTexture
 	 * 4. Hide preview actor from viewport (only visible to SceneCapture)
 	 *
 	 * @return Pointer to created preview actor, nullptr on failure
@@ -340,84 +450,14 @@ public:
 	 */
 	void DestroyPreviewAurora();
 
-#endif
+	// ========================================================================
+	// Editor-Only Private Variables
+	// ========================================================================
 private:
-
-	// Transient: Not saved to disk
-	UPROPERTY(Transient)
-	TObjectPtr<UMaterialInstanceDynamic> AuroraMaterialDynamic = nullptr;
-
-	UPROPERTY()
-	TObjectPtr<UAuroraPresetBase> DefaultAurora = nullptr;
-
-	/** Flag to force simulation reset (triggered by manual reset button) */
-	bool bForceResetSimulation = false;
-
-	/** Flag indicating control points need GPU buffer update */
-	bool bControlPointsDirty = true;
-
-	/** Flag indicating aurora elements map needs update */
-	bool bAuroraElementsMapDirty = true;
-
-	/** Track previous aurora elements map to detect content changes */
-	UPROPERTY()
-	UTexture* PreviousAuroraElementsMap = nullptr;
-
-	/** Previous aurora elements resource pointer for change detection */
-	FTextureResource* PreviousAuroraElementsResource = nullptr;
-
-	/** Control points type info */
-	TArray<FControlPointInfoGPU> ControlPointsInfo;
-
-	/** Single force control points info */
-	TArray<FSingleForceControlPointGPU> SingleForceControlPoints;
-
-	/** Double force control points info */
-	TArray<FDoubleForceControlPointGPU> DoubleForceControlPoints;
-
-	/** Triple force control points info */
-	TArray<FTripleForceControlPointGPU> TripleForceControlPoints;
-
-	/** Dipole control points info */
-	TArray<FDipoleControlPointGPU> DipoleControlPoints;
-
-	/** Curl control points info */
-	TArray<FCurlControlPointGPU> CurlControlPoints;
-
-	/** Warp control points info */
-	TArray<FWarpControlPointGPU> WarpControlPoints;
-
-#if WITH_EDITORONLY_DATA
 	/** Masked billboard base material loaded from path */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInterface> ControlPointMaskedBaseMat = nullptr;
-#endif
 
-private:
-	/** Execute aurora flow simulation compute shader pass */
-	void SimulateAuroraPass(UPotentialFlowAuroraPreset* FlowPreset, float DeltaTime);
-
-	/** Bake obstacle distance field using Jump Flooding Algorithm */
-	void BakeDistanceMapToRenderTarget(UPotentialFlowAuroraPreset* FlowPreset);
-
-#if WITH_EDITOR
-	void RenderControlPointsDebug() const;
-#endif
-
-	float MapSize = 50000.0f;
-
-	// Preset folder path cache
-	UPROPERTY()
-	FString PresetFolder;
-
-	// Plugin path cache
-	UPROPERTY()
-	FString PluginPath;
-
-	UFUNCTION(BlueprintCallable, Category = "Aurora|Control")
-	void UpdateMaterialTarget();
-
-#if WITH_EDITORONLY_DATA
 	UPROPERTY()
 	class UBillboardComponent* SpriteComponent;
 #endif

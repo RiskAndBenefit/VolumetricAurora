@@ -253,13 +253,13 @@ float2 ComputeDipole(
 
 	// cos(θ): angle between dipole axis and position vector
 	// Using dot product: cos θ = (dipoleDir · offset) / |offset|
-	float CosTheta = dot(DipoleDirection, Offset) / SafeDistanceSquared;
+	float CosTheta = dot(DipoleDirection, Offset) / SafeDistance;
 
 	// sin(θ): using 2D cross product z-component
 	// sin θ = (dipoleDir × offset)_z / |offset|
 	float SinTheta = (
 		DipoleDirection.x * Offset.y - DipoleDirection.y * Offset.x
-	) / (SafeDistance + 0.5f);
+	) / SafeDistance;
 
 	// Radial unit vector
 	float2 RadialDirection = Offset / SafeDistance;

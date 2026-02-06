@@ -9,6 +9,7 @@
 #include "Data/AuroraPresetAsset.h"
 #include "UObject/SavePackage.h"
 #include "Misc/PackageName.h"
+#include "Misc/MessageDialog.h"
 
 
 BEGIN_SLATE_FUNCTION_BUILD_OPTIMIZATION
@@ -182,35 +183,40 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	// Always clear previous UI error on new attempt.
 	ValidationResult = FAssetNameValidationResult::Success();
 
+	// Helper lambda to show error with user-friendly message
+	auto ShowError = [this](const FString& UserMessage, const FString& LogMessage)
+	{
+		UE_LOG(LogTemp, Error, TEXT("SaveAs: %s"), *LogMessage);
+		ValidationResult = FAssetNameValidationResult::Failure(FText::FromString(UserMessage));
+		return FReply::Handled();
+	};
+
 	// ========================================================================
 	// Step 1: Validate prerequisites
 	// ========================================================================
 
 	if (!TargetAurora)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: TargetAurora is null"));
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: TargetAurora is null."))
+		return ShowError(
+			TEXT("Aurora actor not found.\nPlease ensure the actor is properly initialized."),
+			TEXT("TargetAurora is null")
 		);
-		return FReply::Handled();
 	}
 
 	if (!CurrentRenderTarget)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: CurrentRenderTarget is null"));
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: CurrentRenderTarget is null."))
+		return ShowError(
+			TEXT("Canvas is not initialized.\nPlease reopen the Element Map editor."),
+			TEXT("CurrentRenderTarget is null")
 		);
-		return FReply::Handled();
 	}
 
 	if (!NameInputBox.IsValid())
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: NameInputBox is invalid"));
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: Name input box is not valid."))
+		return ShowError(
+			TEXT("Name input box is invalid.\nPlease reopen the save dialog."),
+			TEXT("NameInputBox is invalid")
 		);
-		return FReply::Handled();
 	}
 
 	UTextureRenderTarget2D* RT = CurrentRenderTarget;
@@ -224,21 +230,19 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	FTextureRenderTargetResource* RTResource = RT->GameThread_GetRenderTargetResource();
 	if (!RTResource)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: Failed to get RenderTarget resource"));
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: Failed to get RenderTarget resource."))
+		return ShowError(
+			TEXT("Cannot access canvas render data.\nThe canvas may not be fully initialized. Try reopening the editor."),
+			TEXT("Failed to get RenderTarget resource")
 		);
-		return FReply::Handled();
 	}
 
 	// ReadPixels blocks until GPU finishes the render work.
 	if (!RTResource->ReadPixels(SurfaceData))
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: Failed to read pixels from RenderTarget"));
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: Failed to read pixels from RenderTarget."))
+		return ShowError(
+			TEXT("Cannot read pixel data from canvas.\nThis may be a GPU access issue. Try saving again."),
+			TEXT("Failed to read pixels from RenderTarget")
 		);
-		return FReply::Handled();
 	}
 
 	// ========================================================================
@@ -261,11 +265,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	// Validate with ObjectPath (covers name + package rules).
 	if (!FPackageName::IsValidObjectPath(ObjectPath))
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: Invalid asset path: %s"), *ObjectPath);
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(FString::Printf(TEXT("Invalid asset name/path:\n%s"), *ObjectPath))
+		return ShowError(
+			FString::Printf(TEXT("Invalid asset name or path.\nPlease use only valid characters.\n\nPath: %s"), *ObjectPath),
+			FString::Printf(TEXT("Invalid asset path: %s"), *ObjectPath)
 		);
-		return FReply::Handled();
 	}
 
 	// ========================================================================
@@ -287,11 +290,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 		Package = Texture->GetOutermost();
 		if (!Package)
 		{
-			UE_LOG(LogTemp, Error, TEXT("SaveAs: Existing texture has no package: %s"), *ObjectPath);
-			ValidationResult = FAssetNameValidationResult::Failure(
-				FText::FromString(TEXT("Save failed: Existing texture has no package."))
+			return ShowError(
+				TEXT("Cannot access the existing texture's package.\nThe texture asset may be corrupted."),
+				FString::Printf(TEXT("Existing texture has no package: %s"), *ObjectPath)
 			);
-			return FReply::Handled();
 		}
 
 		Package->FullyLoad();
@@ -304,11 +306,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 		Package = CreatePackage(*PackageName);
 		if (!Package)
 		{
-			UE_LOG(LogTemp, Error, TEXT("SaveAs: CreatePackage failed: %s"), *PackageName);
-			ValidationResult = FAssetNameValidationResult::Failure(
-				FText::FromString(FString::Printf(TEXT("Save failed: CreatePackage failed:\n%s"), *PackageName))
+			return ShowError(
+				FString::Printf(TEXT("Cannot create package.\nCheck if the plugin folder is writable.\n\nPackage: %s"), *PackageName),
+				FString::Printf(TEXT("CreatePackage failed: %s"), *PackageName)
 			);
-			return FReply::Handled();
 		}
 
 		Package->FullyLoad();
@@ -316,11 +317,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 		Texture = NewObject<UTexture2D>(Package, *AssetName, RF_Public | RF_Standalone | RF_MarkAsRootSet);
 		if (!Texture)
 		{
-			UE_LOG(LogTemp, Error, TEXT("SaveAs: Failed to create texture object: %s"), *ObjectPath);
-			ValidationResult = FAssetNameValidationResult::Failure(
-				FText::FromString(FString::Printf(TEXT("Save failed: Failed to create texture object:\n%s"), *ObjectPath))
+			return ShowError(
+				FString::Printf(TEXT("Cannot create texture object.\nInternal error occurred.\n\nPath: %s"), *ObjectPath),
+				FString::Printf(TEXT("Failed to create texture object: %s"), *ObjectPath)
 			);
-			return FReply::Handled();
 		}
 
 		// Initialize source only when creating.
@@ -351,11 +351,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	uint8* MipData = Texture->Source.LockMip(0);
 	if (!MipData)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: Failed to lock mip0 for writing: %s"), *ObjectPath);
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: Failed to lock texture mip for writing."))
+		return ShowError(
+			TEXT("Cannot lock texture for editing.\nThe texture may be in use or corrupted."),
+			FString::Printf(TEXT("Failed to lock mip0 for writing: %s"), *ObjectPath)
 		);
-		return FReply::Handled();
 	}
 
 	const int32 ExpectedBytes = RT->SizeX * RT->SizeY * sizeof(FColor);
@@ -363,11 +362,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	if (SourceBytes < ExpectedBytes)
 	{
 		Texture->Source.UnlockMip(0);
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: SurfaceData is smaller than expected: %s"), *ObjectPath);
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(TEXT("Save failed: Pixel buffer size mismatch."))
+		return ShowError(
+			TEXT("Canvas data size mismatch.\nExpected size doesn't match actual canvas size."),
+			FString::Printf(TEXT("SurfaceData is smaller than expected: %s"), *ObjectPath)
 		);
-		return FReply::Handled();
 	}
 
 	FMemory::Memcpy(MipData, SurfaceData.GetData(), ExpectedBytes);
@@ -414,11 +412,10 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 
 	if (!bSaved)
 	{
-		UE_LOG(LogTemp, Error, TEXT("SaveAs: Failed to save package: %s"), *PackageName);
-		ValidationResult = FAssetNameValidationResult::Failure(
-			FText::FromString(FString::Printf(TEXT("Save failed: Failed to save package:\n%s"), *PackageName))
+		return ShowError(
+			FString::Printf(TEXT("Cannot write texture file to disk.\nCheck file permissions and disk space.\n\nPackage: %s"), *PackageName),
+			FString::Printf(TEXT("Failed to save package: %s"), *PackageName)
 		);
-		return FReply::Handled();
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("SaveAs: Saved texture: %s"), *ObjectPath);
@@ -426,14 +423,20 @@ FReply SSaveFlowElementMapAsWidget::OnSaveClicked()
 	if (UPotentialFlowAuroraPreset* FlowPreset = Cast<UPotentialFlowAuroraPreset>(TargetAurora->TargetAurora))
 	{
 		FlowPreset->Modify();
-		FlowPreset->AuroraElementsMap = Texture;
+		FlowPreset->ShapeTexture = Texture;
 	}
 
 	// Clear UI error on success (hides the red text block).
 	ValidationResult = FAssetNameValidationResult::Success();
 
+	// Show success message
+	FMessageDialog::Open(
+		EAppMsgType::Ok,
+		FText::FromString(FString::Printf(TEXT("Element Map saved successfully!\n\nSaved to: %s"), *AssetName))
+	);
+
 	// Optional: close dialog window after saving.
-	// if (TSharedPtr<SWindow> W = ParentWindow.Pin()) { W->RequestDestroyWindow(); }
+	if (TSharedPtr<SWindow> W = ParentWindow.Pin()) { W->RequestDestroyWindow(); }
 
 	return FReply::Handled();
 }

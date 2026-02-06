@@ -216,7 +216,7 @@ public:
 		SHADER_PARAMETER(uint32, bHasObstacle)
 
 		// Aurora element control
-		SHADER_PARAMETER_TEXTURE(Texture2D, AuroraElementsMap)
+		SHADER_PARAMETER_TEXTURE(Texture2D, ShapeTexture)
 		SHADER_PARAMETER_SAMPLER(SamplerState, AuroraElementsSampler)
 
 		// Emitter noise parameters
