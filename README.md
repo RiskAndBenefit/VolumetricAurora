@@ -2,8 +2,7 @@
 Volumetric Aurora is a real-time aurora rendering plugin for Unreal Engine, designed to reproduce diverse real-world aurora shapes with flexible, art-directed control. It lets you create auroras that feel present in the sky with depth and motion, offering a wide range of looks from subtle night ambience to dramatic cinematic shots.
 
 ## 📽️ Trailer
-[![Volumetric Aurora Trailer](http://img.youtube.com/vi/KFH0PjzGL84/0.jpg)]
-
+[![Volumetric Aurora Trailer](https://img.youtube.com/vi/QUAofjz6ewg/hq1.jpg)](https://youtu.be/QUAofjz6ewg?si=-TQilyzrGWesdGUt)
 
 ## How To Use
 
